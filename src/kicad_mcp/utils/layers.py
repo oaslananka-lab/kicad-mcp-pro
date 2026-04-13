@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, cast
 
 from kipy.proto.board.board_types_pb2 import BoardLayer
 
@@ -86,7 +86,7 @@ def resolve_layer_name(layer_name: str) -> str:
     return normalized
 
 
-def resolve_layer(layer_name: str) -> int:
+def resolve_layer(layer_name: str) -> BoardLayer.ValueType:
     """Resolve a canonical layer name to a KiCad board layer enum value."""
     canonical = resolve_layer_name(layer_name)
-    return int(getattr(BoardLayer, _LAYER_ATTRS[canonical]))
+    return cast(BoardLayer.ValueType, getattr(BoardLayer, _LAYER_ATTRS[canonical]))

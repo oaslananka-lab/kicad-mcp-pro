@@ -11,7 +11,8 @@ from urllib.parse import quote
 from mcp.server.fastmcp import FastMCP
 
 from ..config import get_config
-from .schematic import _extract_block, update_symbol_property
+from ..utils.sexpr import _extract_block
+from .schematic import update_symbol_property
 
 _symbol_index: dict[str, dict[str, str]] | None = None
 _symbol_index_lock = threading.Lock()

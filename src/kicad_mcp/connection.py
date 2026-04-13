@@ -20,7 +20,7 @@ class KiCadConnectionError(RuntimeError):
 
 
 logger = structlog.get_logger(__name__)
-_lock = threading.Lock()
+_lock = threading.RLock()
 _kicad: KiCad | None = None
 
 
@@ -60,6 +60,7 @@ def _build_kicad_kwargs() -> _KiCadKwargs:
 def get_kicad() -> KiCad:
     """Return a thread-safe KiCad IPC connection."""
     global _kicad
+    cfg = get_config()
     with _lock:
         if _kicad is None:
             kwargs = _build_kicad_kwargs()
@@ -67,10 +68,18 @@ def get_kicad() -> KiCad:
             try:
                 _kicad = KiCad(**kwargs)
             except Exception as exc:
+                logger.warning(
+                    "kicad_connect_failed",
+                    error=str(exc),
+                    socket_path=str(cfg.kicad_socket_path) if cfg.kicad_socket_path else None,
+                )
                 raise KiCadConnectionError(
                     "Could not connect to KiCad IPC API.\n"
                     "Make sure KiCad is running and the IPC API is enabled:\n"
-                    "  KiCad → Preferences → Scripting → Enable IPC API Server"
+                    "  KiCad -> Preferences -> Scripting -> Enable IPC API Server\n"
+                    "If you use a custom socket or token, set:\n"
+                    "  KICAD_MCP_KICAD_SOCKET_PATH\n"
+                    "  KICAD_MCP_KICAD_TOKEN"
                 ) from exc
     return _kicad
 
@@ -80,7 +89,12 @@ def get_board() -> Board:
     try:
         return get_kicad().get_board()
     except Exception as exc:
-        raise KiCadConnectionError("KiCad is connected but no board is currently open.") from exc
+        logger.debug("kicad_get_board_failed", error=str(exc))
+        raise KiCadConnectionError(
+            "KiCad IPC is reachable, but no PCB is open in the active KiCad session.\n"
+            "Open a .kicad_pcb file in KiCad or call kicad_set_project() to point the server "
+            "at the expected project files."
+        ) from exc
 
 
 def reset_connection() -> None:
@@ -100,9 +114,10 @@ def reset_connection() -> None:
 @contextmanager
 def board_transaction() -> Generator[Board, None, None]:
     """Context manager for board operations."""
-    board = get_board()
-    try:
-        yield board
-    except KiCadConnectionError:
-        reset_connection()
-        raise
+    with _lock:
+        board = get_board()
+        try:
+            yield board
+        except KiCadConnectionError:
+            reset_connection()
+            raise

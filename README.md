@@ -144,7 +144,6 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 | `KICAD_MCP_KICAD_CLI`                 | Path to `kicad-cli`                          | Auto-detected      |
 | `KICAD_MCP_KICAD_SOCKET_PATH`         | Optional KiCad IPC socket path               | Unset              |
 | `KICAD_MCP_KICAD_TOKEN`               | Optional KiCad IPC token                     | Unset              |
-| `KICAD_MCP_KICAD_HEADLESS`            | Reserved for future runtime support; currently no-op | `false`    |
 | `KICAD_MCP_PROJECT_DIR`               | Active project directory                     | Unset              |
 | `KICAD_MCP_PROJECT_FILE`              | Explicit `.kicad_pro` file                   | Auto-detected      |
 | `KICAD_MCP_PCB_FILE`                  | Explicit `.kicad_pcb` file                   | Auto-detected      |

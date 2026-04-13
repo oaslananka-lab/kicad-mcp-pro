@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 
+def _coord_nm(point: object, axis: str) -> int:
+    """Read either ``x_nm``/``y_nm`` or ``x``/``y`` coordinates as nanometers."""
+    attr_name = f"{axis}_nm"
+    value = getattr(point, attr_name) if hasattr(point, attr_name) else getattr(point, axis)
+    return int(value)
+
+
 def mm_to_nm(mm_value: float) -> int:
     """Convert millimeters to nanometers."""
     return int(round(mm_value * 1_000_000))

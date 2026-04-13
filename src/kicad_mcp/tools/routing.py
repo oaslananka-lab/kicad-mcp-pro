@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, cast
+from typing import cast
 
 from kipy.board_types import Net, Track
 from kipy.geometry import Vector2
@@ -10,43 +10,10 @@ from mcp.server.fastmcp import FastMCP
 
 from ..config import get_config
 from ..connection import board_transaction, get_board
+from ..models.common import _PadLike
 from ..models.pcb import AddTrackInput
 from ..utils.layers import resolve_layer
-from ..utils.units import mm_to_nm, nm_to_mm
-
-
-class _PositionLike(Protocol):
-    x_nm: int
-    y_nm: int
-
-
-class _TextValueLike(Protocol):
-    value: str
-
-
-class _TextFieldLike(Protocol):
-    text: _TextValueLike
-
-
-class _FootprintLike(Protocol):
-    reference_field: _TextFieldLike
-
-
-class _NetLike(Protocol):
-    name: str
-
-
-class _PadLike(Protocol):
-    parent: _FootprintLike
-    number: str | int
-    position: _PositionLike
-    net: _NetLike
-
-
-def _coord_nm(point: object, axis: str) -> int:
-    attr_name = f"{axis}_nm"
-    value = getattr(point, attr_name) if hasattr(point, attr_name) else getattr(point, axis)
-    return int(value)
+from ..utils.units import _coord_nm, mm_to_nm, nm_to_mm
 
 
 def _find_pad(reference: str, pad_number: str) -> _PadLike | None:
@@ -93,7 +60,7 @@ def register(mcp: FastMCP) -> None:
         track = Track()
         track.start = Vector2.from_xy_mm(payload.x1_mm, payload.y1_mm)
         track.end = Vector2.from_xy_mm(payload.x2_mm, payload.y2_mm)
-        track.layer = cast(Any, resolve_layer(payload.layer))
+        track.layer = resolve_layer(payload.layer)
         track.width = mm_to_nm(payload.width_mm)
         if payload.net_name:
             net = Net()
@@ -147,7 +114,7 @@ def register(mcp: FastMCP) -> None:
             track = Track()
             track.start = Vector2.from_xy_mm(payload.x1_mm, payload.y1_mm)
             track.end = Vector2.from_xy_mm(payload.x2_mm, payload.y2_mm)
-            track.layer = cast(Any, resolve_layer(payload.layer))
+            track.layer = resolve_layer(payload.layer)
             track.width = mm_to_nm(payload.width_mm)
             if payload.net_name:
                 net = Net()

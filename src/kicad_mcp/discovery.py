@@ -6,10 +6,11 @@ import platform
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import structlog
 
@@ -59,18 +60,20 @@ def _candidate_cli_paths() -> list[Path]:
 def _discover_via_kipy() -> Path | None:
     try:
         from kipy.kicad import KiCad
-    except Exception:
+    except ImportError:
         return None
 
     kicad = None
     try:
         if "headless" in inspect.signature(KiCad.__init__).parameters:
-            kicad = cast(Any, KiCad)(headless=True, timeout_ms=1000)
+            headless_ctor = cast(Callable[..., KiCad], KiCad)
+            kicad = headless_ctor(headless=True, timeout_ms=1000)
         else:
             kicad = KiCad(timeout_ms=1000)
         cli = Path(kicad.get_kicad_binary_path("kicad-cli"))
         return cli if cli.exists() else None
-    except Exception:
+    except Exception as exc:
+        logger.debug("kipy_cli_discovery_failed", error=str(exc))
         return None
     finally:
         if kicad is not None:

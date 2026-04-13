@@ -6,6 +6,7 @@ import json
 import uuid
 from pathlib import Path
 
+import structlog
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,8 @@ from ..config import get_config
 from ..connection import KiCadConnectionError, get_kicad, reset_connection
 from ..discovery import find_kicad_version, find_recent_projects, scan_project_dir
 from .router import TOOL_CATEGORIES
+
+logger = structlog.get_logger(__name__)
 
 
 class ScanDirectoryInput(BaseModel):
@@ -198,7 +201,8 @@ def register(mcp: FastMCP) -> None:
             lines.append(f"Open schematic documents: {len(sch_docs)}")
         except KiCadConnectionError as exc:
             lines.append(f"IPC connection: unavailable ({exc})")
-        except Exception:
+        except Exception as exc:
+            logger.debug("kicad_version_ipc_probe_failed", error=str(exc))
             lines.append("IPC connection: unavailable")
 
         lines.append("")

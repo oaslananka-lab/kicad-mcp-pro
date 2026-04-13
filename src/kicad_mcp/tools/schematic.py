@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
+import structlog
 from mcp.server.fastmcp import FastMCP
 
 from ..config import get_config
@@ -24,6 +25,12 @@ from ..models.schematic import (
     AnnotateInput,
     PowerSymbolInput,
     UpdatePropertiesInput,
+)
+from ..utils.sexpr import (
+    _escape_sexpr_string,
+    _extract_block,
+    _sexpr_string,
+    _unescape_sexpr_string,
 )
 
 SCHEMATIC_GRID_MM = 2.54
@@ -52,6 +59,7 @@ POWER_NET_NAMES = {
     "-5V",
     "-12V",
 }
+logger = structlog.get_logger(__name__)
 
 
 def new_uuid() -> str:
@@ -60,36 +68,6 @@ def new_uuid() -> str:
 
 
 _STRING_PATTERN = r'"((?:\\.|[^"\\])*)"'
-
-
-def _escape_sexpr_string(value: str) -> str:
-    return (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\r\n", "\n")
-        .replace("\r", "\n")
-        .replace("\n", "\\n")
-    )
-
-
-def _sexpr_string(value: str) -> str:
-    return f'"{_escape_sexpr_string(value)}"'
-
-
-def _unescape_sexpr_string(value: str) -> str:
-    chars: list[str] = []
-    escaped = False
-    for char in value:
-        if escaped:
-            chars.append("\n" if char == "n" else char)
-            escaped = False
-        elif char == "\\":
-            escaped = True
-        else:
-            chars.append(char)
-    if escaped:
-        chars.append("\\")
-    return "".join(chars)
 
 
 def _snap_schematic_coord(value: float) -> float:
@@ -450,29 +428,6 @@ def parse_schematic_file(sch_file: Path) -> dict[str, Any]:
 def _extract_uuid(content: str) -> str:
     match = re.search(r'\(kicad_sch[^(]*\(uuid\s+"([^"]+)"', content)
     return match.group(1) if match else ""
-
-
-def _extract_block(content: str, start: int) -> tuple[str, int]:
-    depth = 0
-    in_string = False
-    escaped = False
-    for index, char in enumerate(content[start:]):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if depth == 0:
-                return content[start : start + index + 1], index + 1
-    return "", 0
 
 
 def _extract_symbols(content: str) -> list[dict[str, Any]]:
@@ -1144,7 +1099,8 @@ def _reload_schematic() -> str:
     try:
         from kipy.proto.common.commands import editor_commands_pb2
         from kipy.proto.common.types.base_types_pb2 import DocumentType
-    except Exception:
+    except Exception as exc:
+        logger.debug("schematic_reload_import_unavailable", error=str(exc))
         return "The schematic was updated. Reload it manually in KiCad if needed."
 
     try:
@@ -1160,7 +1116,8 @@ def _reload_schematic() -> str:
         command.document.CopyFrom(documents[0])
         kicad._client.send(command, type(None).__mro__[0])
         return "The schematic was updated and KiCad was asked to reload it."
-    except Exception:
+    except Exception as exc:
+        logger.debug("schematic_reload_failed", error=str(exc))
         return "The schematic was updated. Reload it manually in KiCad if needed."
 
 

@@ -37,10 +37,6 @@ class KiCadMCPConfig(BaseSettings):
     )
     kicad_socket_path: Path | None = Field(default=None)
     kicad_token: str | None = Field(default=None)
-    kicad_headless: bool = Field(
-        default=False,
-        description="Reserved for future KiCad runtime support. Currently a no-op.",
-    )
 
     project_dir: Path | None = Field(default=None)
     project_file: Path | None = Field(default=None)

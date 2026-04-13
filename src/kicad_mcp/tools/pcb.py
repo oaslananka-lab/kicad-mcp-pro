@@ -28,6 +28,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..config import get_config
 from ..connection import KiCadConnectionError, board_transaction, get_board
+from ..models.common import _FootprintLike, _PadLike
 from ..models.pcb import (
     AddCircleInput,
     AddRectangleInput,
@@ -40,7 +41,8 @@ from ..models.pcb import (
     SyncPcbFromSchematicInput,
 )
 from ..utils.layers import resolve_layer
-from ..utils.units import mm_to_nm, nm_to_mm
+from ..utils.sexpr import _extract_block, _sexpr_string
+from ..utils.units import _coord_nm, mm_to_nm, nm_to_mm
 from .schematic import parse_schematic_file
 
 logger = structlog.get_logger(__name__)
@@ -50,37 +52,6 @@ FLOAT_PATTERN = r"-?\d+(?:\.\d+)?"
 PLACEMENT_MARGIN_MM = 1.27
 
 
-class _PositionLike(Protocol):
-    x_nm: int
-    y_nm: int
-
-
-class _TextValueLike(Protocol):
-    value: str
-
-
-class _TextFieldLike(Protocol):
-    text: _TextValueLike
-
-
-class _NetLike(Protocol):
-    name: str
-
-
-class _FootprintLike(Protocol):
-    reference_field: _TextFieldLike
-    value_field: _TextFieldLike
-    position: Any
-    layer: int
-
-
-class _PadLike(Protocol):
-    parent: _FootprintLike
-    number: str | int
-    net: _NetLike
-    position: Any
-
-
 class _ComponentPlacement(Protocol):
     reference: str
     value: str
@@ -88,12 +59,6 @@ class _ComponentPlacement(Protocol):
     x: float
     y: float
     rotation: int
-
-
-def _coord_nm(point: object, axis: str) -> int:
-    attr_name = f"{axis}_nm"
-    value = getattr(point, attr_name) if hasattr(point, attr_name) else getattr(point, axis)
-    return int(value)
 
 
 def _limit[T](items: Iterable[T]) -> tuple[list[T], int]:
@@ -119,43 +84,6 @@ def _find_footprint_by_reference(reference: str) -> _FootprintLike | None:
 def _format_selection_id(item: object) -> str:
     item_id = getattr(getattr(item, "id", None), "value", "")
     return str(item_id)[:8] + ("..." if item_id else "")
-
-
-def _escape_sexpr_string(value: str) -> str:
-    return (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\r\n", "\n")
-        .replace("\r", "\n")
-        .replace("\n", "\\n")
-    )
-
-
-def _sexpr_string(value: str) -> str:
-    return f'"{_escape_sexpr_string(value)}"'
-
-
-def _extract_block(content: str, start: int) -> tuple[str, int]:
-    depth = 0
-    in_string = False
-    escaped = False
-    for index, char in enumerate(content[start:]):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if depth == 0:
-                return content[start : start + index + 1], index + 1
-    return "", 0
 
 
 def _validate_board_text(content: str) -> None:
@@ -233,9 +161,8 @@ def _transactional_board_write(mutator: Callable[[str], str]) -> str:
 def _board_is_open() -> bool:
     try:
         get_board()
-    except KiCadConnectionError:
-        return False
-    except Exception:
+    except (KiCadConnectionError, OSError) as exc:
+        logger.debug("board_not_open", error=str(exc))
         return False
     return True
 
@@ -243,9 +170,8 @@ def _board_is_open() -> bool:
 def _reload_board_after_file_sync() -> str:
     try:
         board = get_board()
-    except KiCadConnectionError:
-        return "The PCB file was updated. Reload it manually in KiCad if needed."
-    except Exception:
+    except (KiCadConnectionError, OSError) as exc:
+        logger.debug("board_reload_skipped", error=str(exc))
         return "The PCB file was updated. Reload it manually in KiCad if needed."
 
     try:
@@ -949,7 +875,7 @@ def register(mcp: FastMCP) -> None:
             track = Track()
             track.start = Vector2.from_xy_mm(payload.x1_mm, payload.y1_mm)
             track.end = Vector2.from_xy_mm(payload.x2_mm, payload.y2_mm)
-            track.layer = cast(Any, resolve_layer(payload.layer))
+            track.layer = resolve_layer(payload.layer)
             track.width = mm_to_nm(payload.width_mm)
             if payload.net_name:
                 track.net = _find_net(payload.net_name)
@@ -965,7 +891,7 @@ def register(mcp: FastMCP) -> None:
             track = Track()
             track.start = Vector2.from_xy_mm(track_input.x1, track_input.y1)
             track.end = Vector2.from_xy_mm(track_input.x2, track_input.y2)
-            track.layer = cast(Any, resolve_layer(track_input.layer))
+            track.layer = resolve_layer(track_input.layer)
             track.width = mm_to_nm(track_input.width)
             if track_input.net:
                 track.net = _find_net(track_input.net)
@@ -992,7 +918,7 @@ def register(mcp: FastMCP) -> None:
             net_name=net_name,
             via_type=via_type,
         )
-        type_map = {
+        type_map: dict[str, ViaType.ValueType] = {
             "through": ViaType.VT_THROUGH,
             "blind": ViaType.VT_BLIND_BURIED,
             "micro": ViaType.VT_MICRO,
@@ -1001,7 +927,7 @@ def register(mcp: FastMCP) -> None:
         via.position = Vector2.from_xy_mm(payload.x_mm, payload.y_mm)
         via.diameter = mm_to_nm(payload.diameter_mm)
         via.drill_diameter = mm_to_nm(payload.drill_mm)
-        via.type = cast(Any, type_map[payload.via_type])
+        via.type = type_map[payload.via_type]
         if payload.net_name:
             via.net = _find_net(payload.net_name)
         with board_transaction() as board:
@@ -1027,7 +953,7 @@ def register(mcp: FastMCP) -> None:
             width_mm=width_mm,
         )
         segment = BoardSegment()
-        segment.layer = cast(Any, resolve_layer(payload.layer))
+        segment.layer = resolve_layer(payload.layer)
         segment.start = Vector2.from_xy_mm(payload.x1_mm, payload.y1_mm)
         segment.end = Vector2.from_xy_mm(payload.x2_mm, payload.y2_mm)
         segment.attributes.stroke.width = mm_to_nm(payload.width_mm)
@@ -1052,7 +978,7 @@ def register(mcp: FastMCP) -> None:
             width_mm=width_mm,
         )
         circle = BoardCircle()
-        circle.layer = cast(Any, resolve_layer(payload.layer))
+        circle.layer = resolve_layer(payload.layer)
         circle.center = Vector2.from_xy_mm(payload.cx_mm, payload.cy_mm)
         circle.radius_point = Vector2.from_xy_mm(payload.cx_mm + payload.radius_mm, payload.cy_mm)
         circle.attributes.stroke.width = mm_to_nm(payload.width_mm)
@@ -1079,7 +1005,7 @@ def register(mcp: FastMCP) -> None:
             width_mm=width_mm,
         )
         rectangle = BoardRectangle()
-        rectangle.layer = cast(Any, resolve_layer(payload.layer))
+        rectangle.layer = resolve_layer(payload.layer)
         rectangle.top_left = Vector2.from_xy_mm(payload.x1_mm, payload.y1_mm)
         rectangle.bottom_right = Vector2.from_xy_mm(payload.x2_mm, payload.y2_mm)
         rectangle.attributes.stroke.width = mm_to_nm(payload.width_mm)
@@ -1136,7 +1062,7 @@ def register(mcp: FastMCP) -> None:
             italic=italic,
         )
         text_item = BoardText()
-        text_item.layer = cast(Any, resolve_layer(payload.layer))
+        text_item.layer = resolve_layer(payload.layer)
         text_item.position = Vector2.from_xy_mm(payload.x_mm, payload.y_mm)
         text_item.value = payload.text
         text_item.attributes.size = Vector2.from_xy_mm(payload.size_mm, payload.size_mm)
@@ -1232,7 +1158,7 @@ def register(mcp: FastMCP) -> None:
         footprint = _find_footprint_by_reference(reference)
         if footprint is None:
             return f"Footprint '{reference}' was not found on the active board."
-        footprint.layer = cast(Any, resolve_layer(layer))
+        footprint.layer = resolve_layer(layer)
         with board_transaction() as board:
             board.update_items([cast(BoardItem, footprint)])
         return f"Updated footprint '{reference}' to layer '{layer}'."
