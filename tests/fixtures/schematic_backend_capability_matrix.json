@@ -9,14 +9,18 @@
     "notes": "kicad-sch-api exposes component collections, but the current text surface needs a compatibility wrapper."
   },
   "sch_get_wires": {
-    "kicad_sch_api_support": "legacy_fallback_temporary",
-    "verified_surface": [],
-    "notes": "No dedicated public wire-list API was verified in kicad-sch-api 0.5.6, so legacy parsing remains the temporary source."
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "WireCollection.all"
+    ],
+    "notes": "Wire summaries are rebuilt from the verified WireCollection API."
   },
   "sch_get_labels": {
-    "kicad_sch_api_support": "legacy_fallback_temporary",
-    "verified_surface": [],
-    "notes": "kicad-sch-api 0.5.6 can add labels but does not expose a verified public label-list method."
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "LabelCollection.all"
+    ],
+    "notes": "kicad-sch-api exposes local labels; compatibility readers extend that surface with global and hierarchical labels."
   },
   "sch_get_net_names": {
     "kicad_sch_api_support": "wrapper_needed",
@@ -55,19 +59,19 @@
     "notes": "Power symbols can be added as components, but hidden reference/value formatting needs a wrapper."
   },
   "sch_add_bus": {
-    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "kicad_sch_api_support": "wrapper_needed",
     "verified_surface": [],
-    "notes": "No verified public bus creation API was found in kicad-sch-api 0.5.6."
+    "notes": "Bus creation remains a compatibility wrapper around the KiCad file format."
   },
   "sch_add_bus_wire_entry": {
-    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "kicad_sch_api_support": "wrapper_needed",
     "verified_surface": [],
-    "notes": "No verified public bus-entry API was found in kicad-sch-api 0.5.6."
+    "notes": "Bus-entry creation remains a compatibility wrapper around the KiCad file format."
   },
   "sch_add_no_connect": {
-    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "kicad_sch_api_support": "wrapper_needed",
     "verified_surface": [],
-    "notes": "No verified public no-connect creation API was found in kicad-sch-api 0.5.6."
+    "notes": "No-connect markers remain a compatibility wrapper around the KiCad file format."
   },
   "sch_update_properties": {
     "kicad_sch_api_support": "wrapper_needed",
@@ -106,9 +110,12 @@
     "notes": "Power-flag analysis can be derived from ERC/validation output, but there is no direct one-shot helper."
   },
   "sch_annotate": {
-    "kicad_sch_api_support": "legacy_fallback_temporary",
-    "verified_surface": [],
-    "notes": "No verified public annotation helper was found in kicad-sch-api 0.5.6."
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "ComponentCollection.all",
+      "ComponentCollection.get"
+    ],
+    "notes": "Annotation remains a deterministic wrapper built on top of component metadata."
   },
   "sch_reload": {
     "kicad_sch_api_support": "wrapper_needed",

@@ -72,7 +72,7 @@ POWER_NET_NAMES = {
 }
 logger = structlog.get_logger(__name__)
 
-SchematicCapabilityStatus = Literal["native", "wrapper_needed", "legacy_fallback_temporary"]
+SchematicCapabilityStatus = Literal["native", "wrapper_needed"]
 
 
 class SchematicCapabilityEntry(TypedDict):
@@ -124,19 +124,16 @@ SCHEMATIC_BACKEND_CAPABILITY_MATRIX: dict[str, SchematicCapabilityEntry] = {
         ),
     },
     "sch_get_wires": {
-        "kicad_sch_api_support": "legacy_fallback_temporary",
-        "verified_surface": [],
-        "notes": (
-            "No dedicated public wire-list API was verified in kicad-sch-api 0.5.6, so "
-            "legacy parsing remains the temporary source."
-        ),
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": ["WireCollection.all"],
+        "notes": "Wire summaries are rebuilt from the verified WireCollection API.",
     },
     "sch_get_labels": {
-        "kicad_sch_api_support": "legacy_fallback_temporary",
-        "verified_surface": [],
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": ["LabelCollection.all"],
         "notes": (
-            "kicad-sch-api 0.5.6 can add labels but does not expose a verified public "
-            "label-list method."
+            "kicad-sch-api exposes local labels; compatibility readers extend that "
+            "surface with global and hierarchical labels."
         ),
     },
     "sch_get_net_names": {
@@ -171,19 +168,19 @@ SCHEMATIC_BACKEND_CAPABILITY_MATRIX: dict[str, SchematicCapabilityEntry] = {
         ),
     },
     "sch_add_bus": {
-        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "kicad_sch_api_support": "wrapper_needed",
         "verified_surface": [],
-        "notes": "No verified public bus creation API was found in kicad-sch-api 0.5.6.",
+        "notes": "Bus creation remains a compatibility wrapper around the KiCad file format.",
     },
     "sch_add_bus_wire_entry": {
-        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "kicad_sch_api_support": "wrapper_needed",
         "verified_surface": [],
-        "notes": "No verified public bus-entry API was found in kicad-sch-api 0.5.6.",
+        "notes": "Bus-entry creation remains a compatibility wrapper around the KiCad file format.",
     },
     "sch_add_no_connect": {
-        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "kicad_sch_api_support": "wrapper_needed",
         "verified_surface": [],
-        "notes": "No verified public no-connect creation API was found in kicad-sch-api 0.5.6.",
+        "notes": "No-connect markers remain a compatibility wrapper around the KiCad file format.",
     },
     "sch_update_properties": {
         "kicad_sch_api_support": "wrapper_needed",
@@ -231,9 +228,9 @@ SCHEMATIC_BACKEND_CAPABILITY_MATRIX: dict[str, SchematicCapabilityEntry] = {
         ),
     },
     "sch_annotate": {
-        "kicad_sch_api_support": "legacy_fallback_temporary",
-        "verified_surface": [],
-        "notes": "No verified public annotation helper was found in kicad-sch-api 0.5.6.",
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": ["ComponentCollection.all", "ComponentCollection.get"],
+        "notes": "Annotation remains a deterministic wrapper built on top of component metadata.",
     },
     "sch_reload": {
         "kicad_sch_api_support": "wrapper_needed",
@@ -404,27 +401,6 @@ class _LoadedSchematicLike(Protocol):
 
     def save(self, file_path: Path | str | None = None, preserve_format: bool = True) -> object: ...
 
-
-@dataclass(frozen=True)
-class _LegacySchematicBackend:
-    name: str = "legacy"
-    capability_matrix: dict[str, SchematicCapabilityEntry] = field(
-        default_factory=lambda: deepcopy(SCHEMATIC_BACKEND_CAPABILITY_MATRIX)
-    )
-
-    def parse_schematic_file(self, sch_file: Path) -> dict[str, Any]:
-        return _legacy_parse_schematic_file(sch_file)
-
-    def transactional_write(self, mutator: Callable[[str], str]) -> str:
-        return _legacy_transactional_write(mutator)
-
-    def update_symbol_property(self, reference: str, field: str, value: str) -> str:
-        return _legacy_update_symbol_property(reference, field, value)
-
-    def reload_schematic(self) -> str:
-        return _legacy_reload_schematic()
-
-
 def _load_kicad_schematic(sch_file: Path) -> _LoadedSchematicLike:
     from kicad_sch_api import load_schematic
 
@@ -470,16 +446,14 @@ class _KicadSchApiBackend:
     )
 
     def parse_schematic_file(self, sch_file: Path) -> dict[str, Any]:
-        legacy_data = _legacy_parse_schematic_file(sch_file)
         try:
             schematic = _load_kicad_schematic(sch_file)
         except Exception as exc:
-            logger.debug(
-                "schematic_backend_kicad_sch_api_parse_fallback",
-                schematic_file=str(sch_file),
-                error=str(exc),
-            )
-            return legacy_data
+            raise RuntimeError(
+                f"Could not load schematic '{sch_file}' through kicad-sch-api."
+            ) from exc
+
+        compatibility = _read_schematic_compatibility_data(sch_file)
 
         try:
             symbols: list[dict[str, Any]] = []
@@ -491,9 +465,31 @@ class _KicadSchApiBackend:
                 else:
                     symbols.append(parsed)
 
-            wires = legacy_data["wires"]
-            try:
-                wires = [
+            labels = compatibility["labels"]
+            seen_labels = {
+                (
+                    label["name"],
+                    round(float(label["x"]), 4),
+                    round(float(label["y"]), 4),
+                    int(label["rotation"]),
+                )
+                for label in labels
+            }
+            for label in _api_labels(schematic):
+                key = (
+                    label["name"],
+                    round(float(label["x"]), 4),
+                    round(float(label["y"]), 4),
+                    int(label["rotation"]),
+                )
+                if key not in seen_labels:
+                    labels.append(label)
+
+            return {
+                "uuid": compatibility["uuid"],
+                "symbols": symbols,
+                "power_symbols": power_symbols,
+                "wires": [
                     {
                         "x1": round(float(wire.start.x), 4),
                         "y1": round(float(wire.start.y), 4),
@@ -501,51 +497,20 @@ class _KicadSchApiBackend:
                         "y2": round(float(wire.end.y), 4),
                     }
                     for wire in cast(list[_WireLike], list(schematic.wires.all()))
-                ]
-            except Exception as exc:
-                logger.debug("schematic_backend_wire_parse_fallback", error=str(exc))
-
-            labels = legacy_data["labels"]
-            try:
-                seen_labels = {
-                    (
-                        label["name"],
-                        round(float(label["x"]), 4),
-                        round(float(label["y"]), 4),
-                        int(label["rotation"]),
-                    )
-                    for label in labels
-                }
-                for label in _api_labels(schematic):
-                    key = (
-                        label["name"],
-                        round(float(label["x"]), 4),
-                        round(float(label["y"]), 4),
-                        int(label["rotation"]),
-                    )
-                    if key not in seen_labels:
-                        labels.append(label)
-            except Exception as exc:
-                logger.debug("schematic_backend_label_parse_fallback", error=str(exc))
-
-            return {
-                "uuid": legacy_data["uuid"],
-                "symbols": symbols,
-                "power_symbols": power_symbols,
-                "wires": wires,
+                ],
                 "labels": labels,
-                "buses": legacy_data["buses"],
+                "buses": compatibility["buses"],
             }
         except Exception as exc:
             logger.debug(
-                "schematic_backend_kicad_sch_api_parse_unexpected_fallback",
+                "schematic_backend_parse_failed",
                 schematic_file=str(sch_file),
                 error=str(exc),
             )
-            return legacy_data
+            raise RuntimeError(f"Could not parse schematic '{sch_file}'.") from exc
 
     def transactional_write(self, mutator: Callable[[str], str]) -> str:
-        return _legacy_transactional_write(mutator)
+        return _transactional_write_to_schematic(mutator)
 
     def update_symbol_property(self, reference: str, field: str, value: str) -> str:
         payload = UpdatePropertiesInput(reference=reference, field=field, value=value)
@@ -554,7 +519,7 @@ class _KicadSchApiBackend:
             schematic = _load_kicad_schematic(sch_file)
             component = schematic.components.get(payload.reference)
             if component is None:
-                return _legacy_update_symbol_property(
+                return _update_symbol_property_text_fallback(
                     payload.reference,
                     payload.field,
                     payload.value,
@@ -579,14 +544,17 @@ class _KicadSchApiBackend:
                 field=payload.field,
                 error=str(exc),
             )
-            return _legacy_update_symbol_property(payload.reference, payload.field, payload.value)
+            return _update_symbol_property_text_fallback(
+                payload.reference,
+                payload.field,
+                payload.value,
+            )
 
     def reload_schematic(self) -> str:
-        return _legacy_reload_schematic()
+        return _reload_schematic_via_ipc()
 
 
 _SCHEMATIC_BACKENDS: dict[str, _SchematicBackendAdapter] = {
-    "legacy": cast(_SchematicBackendAdapter, _LegacySchematicBackend()),
     "kicad_sch_api": cast(_SchematicBackendAdapter, _KicadSchApiBackend()),
 }
 _DEFAULT_SCHEMATIC_BACKEND = "kicad_sch_api"
@@ -938,26 +906,14 @@ def _apply_basic_auto_layout(
     return laid_out_symbols, laid_out_powers, laid_out_labels
 
 
-def _legacy_parse_schematic_file(sch_file: Path) -> dict[str, Any]:
-    """Parse a schematic file into coarse structures."""
+def _read_schematic_compatibility_data(sch_file: Path) -> dict[str, Any]:
+    """Read schematic data that kicad-sch-api 0.5.x does not yet surface directly."""
     content = sch_file.read_text(encoding="utf-8", errors="ignore")
-    result: dict[str, Any] = {
+    return {
         "uuid": _extract_uuid(content),
-        "symbols": _extract_symbols(content),
-        "wires": _extract_wires(content),
         "labels": _extract_labels(content),
         "buses": _extract_buses(content),
-        "power_symbols": [],
     }
-
-    regular_symbols = []
-    for symbol in result["symbols"]:
-        if symbol["lib_id"].startswith("power:"):
-            result["power_symbols"].append(symbol)
-        else:
-            regular_symbols.append(symbol)
-    result["symbols"] = regular_symbols
-    return result
 
 
 def parse_schematic_file(sch_file: Path) -> dict[str, Any]:
@@ -968,22 +924,6 @@ def parse_schematic_file(sch_file: Path) -> dict[str, Any]:
 def _extract_uuid(content: str) -> str:
     match = re.search(r'\(kicad_sch[^(]*\(uuid\s+"([^"]+)"', content)
     return match.group(1) if match else ""
-
-
-def _extract_symbols(content: str) -> list[dict[str, Any]]:
-    symbols: list[dict[str, Any]] = []
-    cursor = 0
-    while cursor < len(content):
-        if content[cursor:].startswith("(symbol"):
-            block, length = _extract_block(content, cursor)
-            if block:
-                parsed = _parse_symbol_block(block)
-                if parsed is not None:
-                    symbols.append(parsed)
-                cursor += length
-                continue
-        cursor += 1
-    return symbols
 
 
 def _parse_symbol_block(block: str) -> dict[str, Any] | None:
@@ -1005,23 +945,6 @@ def _parse_symbol_block(block: str) -> dict[str, Any] | None:
         "rotation": int(round(float(at_match.group(3)))) if at_match else 0,
         "unit": int(unit_match.group(1)) if unit_match else 1,
     }
-
-
-def _extract_wires(content: str) -> list[dict[str, float]]:
-    wires: list[dict[str, float]] = []
-    for match in re.finditer(
-        r"\(wire\s+\(pts\s+\(xy\s+([-\d.]+)\s+([-\d.]+)\)\s+\(xy\s+([-\d.]+)\s+([-\d.]+)\)\)",
-        content,
-    ):
-        wires.append(
-            {
-                "x1": float(match.group(1)),
-                "y1": float(match.group(2)),
-                "x2": float(match.group(3)),
-                "y2": float(match.group(4)),
-            }
-        )
-    return wires
 
 
 def _extract_buses(content: str) -> list[dict[str, float]]:
@@ -1769,7 +1692,7 @@ def _find_placed_symbol_block(
     return None
 
 
-def _legacy_transactional_write(mutator: Callable[[str], str]) -> str:
+def _transactional_write_to_schematic(mutator: Callable[[str], str]) -> str:
     """Read, mutate, validate, and atomically rewrite the active schematic."""
     sch_file = _get_schematic_file()
     current = sch_file.read_text(encoding="utf-8")
@@ -1787,7 +1710,7 @@ def transactional_write(mutator: Callable[[str], str]) -> str:
     return get_schematic_backend().transactional_write(mutator)
 
 
-def _legacy_update_symbol_property(reference: str, field: str, value: str) -> str:
+def _update_symbol_property_text_fallback(reference: str, field: str, value: str) -> str:
     """Update a symbol property in the active schematic."""
     payload = UpdatePropertiesInput(reference=reference, field=field, value=value)
 
@@ -1825,7 +1748,7 @@ def _legacy_update_symbol_property(reference: str, field: str, value: str) -> st
             new_block = block[:insert_point] + property_block + block[insert_point:]
         return current[:start] + new_block + current[end:]
 
-    _legacy_transactional_write(mutator)
+    _transactional_write_to_schematic(mutator)
     return f"Updated {payload.reference}.{payload.field}."
 
 
@@ -1834,7 +1757,7 @@ def update_symbol_property(reference: str, field: str, value: str) -> str:
     return get_schematic_backend().update_symbol_property(reference, field, value)
 
 
-def _legacy_reload_schematic() -> str:
+def _reload_schematic_via_ipc() -> str:
     try:
         from kipy.proto.common.commands import editor_commands_pb2
         from kipy.proto.common.types.base_types_pb2 import DocumentType
