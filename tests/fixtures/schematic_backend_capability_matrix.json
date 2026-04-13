@@ -1,0 +1,120 @@
+{
+  "sch_get_symbols": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "ComponentCollection.get",
+      "ComponentCollection.filter",
+      "Component.to_dict"
+    ],
+    "notes": "kicad-sch-api exposes component collections, but the current text surface needs a compatibility wrapper."
+  },
+  "sch_get_wires": {
+    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "verified_surface": [],
+    "notes": "No dedicated public wire-list API was verified in kicad-sch-api 0.5.6, so legacy parsing remains the temporary source."
+  },
+  "sch_get_labels": {
+    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "verified_surface": [],
+    "notes": "kicad-sch-api 0.5.6 can add labels but does not expose a verified public label-list method."
+  },
+  "sch_get_net_names": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "Schematic.get_net_for_pin",
+      "Schematic.get_connected_pins"
+    ],
+    "notes": "Net-name summaries can be rebuilt from pin connectivity helpers, but require a compatibility wrapper."
+  },
+  "sch_add_symbol": {
+    "kicad_sch_api_support": "native",
+    "verified_surface": [
+      "ComponentCollection.add"
+    ],
+    "notes": "Component placement maps directly to ComponentCollection.add()."
+  },
+  "sch_add_wire": {
+    "kicad_sch_api_support": "native",
+    "verified_surface": [
+      "Schematic.add_wire"
+    ],
+    "notes": "Straight wire creation exists directly in the verified public API."
+  },
+  "sch_add_label": {
+    "kicad_sch_api_support": "native",
+    "verified_surface": [
+      "Schematic.add_label"
+    ],
+    "notes": "Local label creation exists directly in the verified public API."
+  },
+  "sch_add_power_symbol": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "ComponentCollection.add"
+    ],
+    "notes": "Power symbols can be added as components, but hidden reference/value formatting needs a wrapper."
+  },
+  "sch_add_bus": {
+    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "verified_surface": [],
+    "notes": "No verified public bus creation API was found in kicad-sch-api 0.5.6."
+  },
+  "sch_add_bus_wire_entry": {
+    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "verified_surface": [],
+    "notes": "No verified public bus-entry API was found in kicad-sch-api 0.5.6."
+  },
+  "sch_add_no_connect": {
+    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "verified_surface": [],
+    "notes": "No verified public no-connect creation API was found in kicad-sch-api 0.5.6."
+  },
+  "sch_update_properties": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "ComponentCollection.get",
+      "Component.set_property"
+    ],
+    "notes": "Property updates are supported through component objects, but the current tool contract needs a wrapper."
+  },
+  "sch_build_circuit": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "create_schematic",
+      "ComponentCollection.add",
+      "Schematic.add_wire",
+      "Schematic.add_label"
+    ],
+    "notes": "Circuit construction can be rebuilt on top of verified primitives, but auto-layout and formatting require a wrapper."
+  },
+  "sch_get_pin_positions": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "Component.get_pin_position",
+      "Schematic.list_component_pins",
+      "get_symbol_info"
+    ],
+    "notes": "Pin positions are available through component and symbol helpers, but the current library-oriented contract needs a wrapper."
+  },
+  "sch_check_power_flags": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "Schematic.run_erc",
+      "Schematic.validate",
+      "Schematic.get_validation_summary"
+    ],
+    "notes": "Power-flag analysis can be derived from ERC/validation output, but there is no direct one-shot helper."
+  },
+  "sch_annotate": {
+    "kicad_sch_api_support": "legacy_fallback_temporary",
+    "verified_surface": [],
+    "notes": "No verified public annotation helper was found in kicad-sch-api 0.5.6."
+  },
+  "sch_reload": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [
+      "KiCad IPC reload helper outside kicad-sch-api"
+    ],
+    "notes": "Reload is a KiCad IPC concern and will remain a wrapper around the active editor/session."
+  }
+}

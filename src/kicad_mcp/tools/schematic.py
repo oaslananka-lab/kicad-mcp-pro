@@ -6,9 +6,11 @@ import math
 import re
 import uuid
 from collections.abc import Callable
+from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import Any, Literal, Protocol, TypedDict, cast
 
 import structlog
 from mcp.server.fastmcp import FastMCP
@@ -60,6 +62,214 @@ POWER_NET_NAMES = {
     "-12V",
 }
 logger = structlog.get_logger(__name__)
+
+SchematicCapabilityStatus = Literal["native", "wrapper_needed", "legacy_fallback_temporary"]
+
+
+class SchematicCapabilityEntry(TypedDict):
+    kicad_sch_api_support: SchematicCapabilityStatus
+    verified_surface: list[str]
+    notes: str
+
+
+SCHEMATIC_PUBLIC_TOOL_NAMES = (
+    "sch_get_symbols",
+    "sch_get_wires",
+    "sch_get_labels",
+    "sch_get_net_names",
+    "sch_add_symbol",
+    "sch_add_wire",
+    "sch_add_label",
+    "sch_add_power_symbol",
+    "sch_add_bus",
+    "sch_add_bus_wire_entry",
+    "sch_add_no_connect",
+    "sch_update_properties",
+    "sch_build_circuit",
+    "sch_get_pin_positions",
+    "sch_check_power_flags",
+    "sch_annotate",
+    "sch_reload",
+)
+
+SCHEMATIC_BACKEND_CAPABILITY_MATRIX: dict[str, SchematicCapabilityEntry] = {
+    "sch_get_symbols": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": [
+            "ComponentCollection.get",
+            "ComponentCollection.filter",
+            "Component.to_dict",
+        ],
+        "notes": (
+            "kicad-sch-api exposes component collections, but the current text surface needs "
+            "a compatibility wrapper."
+        ),
+    },
+    "sch_get_wires": {
+        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "verified_surface": [],
+        "notes": (
+            "No dedicated public wire-list API was verified in kicad-sch-api 0.5.6, so "
+            "legacy parsing remains the temporary source."
+        ),
+    },
+    "sch_get_labels": {
+        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "verified_surface": [],
+        "notes": (
+            "kicad-sch-api 0.5.6 can add labels but does not expose a verified public "
+            "label-list method."
+        ),
+    },
+    "sch_get_net_names": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": ["Schematic.get_net_for_pin", "Schematic.get_connected_pins"],
+        "notes": (
+            "Net-name summaries can be rebuilt from pin connectivity helpers, but require "
+            "a compatibility wrapper."
+        ),
+    },
+    "sch_add_symbol": {
+        "kicad_sch_api_support": "native",
+        "verified_surface": ["ComponentCollection.add"],
+        "notes": "Component placement maps directly to ComponentCollection.add().",
+    },
+    "sch_add_wire": {
+        "kicad_sch_api_support": "native",
+        "verified_surface": ["Schematic.add_wire"],
+        "notes": "Straight wire creation exists directly in the verified public API.",
+    },
+    "sch_add_label": {
+        "kicad_sch_api_support": "native",
+        "verified_surface": ["Schematic.add_label"],
+        "notes": "Local label creation exists directly in the verified public API.",
+    },
+    "sch_add_power_symbol": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": ["ComponentCollection.add"],
+        "notes": (
+            "Power symbols can be added as components, but hidden reference/value formatting "
+            "needs a wrapper."
+        ),
+    },
+    "sch_add_bus": {
+        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "verified_surface": [],
+        "notes": "No verified public bus creation API was found in kicad-sch-api 0.5.6.",
+    },
+    "sch_add_bus_wire_entry": {
+        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "verified_surface": [],
+        "notes": "No verified public bus-entry API was found in kicad-sch-api 0.5.6.",
+    },
+    "sch_add_no_connect": {
+        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "verified_surface": [],
+        "notes": "No verified public no-connect creation API was found in kicad-sch-api 0.5.6.",
+    },
+    "sch_update_properties": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": ["ComponentCollection.get", "Component.set_property"],
+        "notes": (
+            "Property updates are supported through component objects, but the current tool "
+            "contract needs a wrapper."
+        ),
+    },
+    "sch_build_circuit": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": [
+            "create_schematic",
+            "ComponentCollection.add",
+            "Schematic.add_wire",
+            "Schematic.add_label",
+        ],
+        "notes": (
+            "Circuit construction can be rebuilt on top of verified primitives, but "
+            "auto-layout and formatting require a wrapper."
+        ),
+    },
+    "sch_get_pin_positions": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": [
+            "Component.get_pin_position",
+            "Schematic.list_component_pins",
+            "get_symbol_info",
+        ],
+        "notes": (
+            "Pin positions are available through component and symbol helpers, but the "
+            "current library-oriented contract needs a wrapper."
+        ),
+    },
+    "sch_check_power_flags": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": [
+            "Schematic.run_erc",
+            "Schematic.validate",
+            "Schematic.get_validation_summary",
+        ],
+        "notes": (
+            "Power-flag analysis can be derived from ERC/validation output, but there is "
+            "no direct one-shot helper."
+        ),
+    },
+    "sch_annotate": {
+        "kicad_sch_api_support": "legacy_fallback_temporary",
+        "verified_surface": [],
+        "notes": "No verified public annotation helper was found in kicad-sch-api 0.5.6.",
+    },
+    "sch_reload": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": ["KiCad IPC reload helper outside kicad-sch-api"],
+        "notes": (
+            "Reload is a KiCad IPC concern and will remain a wrapper around the active "
+            "editor/session."
+        ),
+    },
+}
+
+
+class _SchematicBackendAdapter(Protocol):
+    name: str
+    capability_matrix: dict[str, SchematicCapabilityEntry]
+
+    def parse_schematic_file(self, sch_file: Path) -> dict[str, Any]: ...
+
+    def transactional_write(self, mutator: Callable[[str], str]) -> str: ...
+
+    def update_symbol_property(self, reference: str, field: str, value: str) -> str: ...
+
+    def reload_schematic(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class _LegacySchematicBackend:
+    name: str = "legacy"
+    capability_matrix: dict[str, SchematicCapabilityEntry] = field(
+        default_factory=lambda: deepcopy(SCHEMATIC_BACKEND_CAPABILITY_MATRIX)
+    )
+
+    def parse_schematic_file(self, sch_file: Path) -> dict[str, Any]:
+        return _legacy_parse_schematic_file(sch_file)
+
+    def transactional_write(self, mutator: Callable[[str], str]) -> str:
+        return _legacy_transactional_write(mutator)
+
+    def update_symbol_property(self, reference: str, field: str, value: str) -> str:
+        return _legacy_update_symbol_property(reference, field, value)
+
+    def reload_schematic(self) -> str:
+        return _legacy_reload_schematic()
+
+
+_SCHEMATIC_BACKENDS: dict[str, _SchematicBackendAdapter] = {
+    "legacy": cast(_SchematicBackendAdapter, _LegacySchematicBackend())
+}
+_DEFAULT_SCHEMATIC_BACKEND = "legacy"
+
+
+def get_schematic_backend() -> _SchematicBackendAdapter:
+    """Return the currently active schematic backend adapter."""
+    return _SCHEMATIC_BACKENDS[_DEFAULT_SCHEMATIC_BACKEND]
 
 
 def new_uuid() -> str:
@@ -403,7 +613,7 @@ def _apply_basic_auto_layout(
     return laid_out_symbols, laid_out_powers, laid_out_labels
 
 
-def parse_schematic_file(sch_file: Path) -> dict[str, Any]:
+def _legacy_parse_schematic_file(sch_file: Path) -> dict[str, Any]:
     """Parse a schematic file into coarse structures."""
     content = sch_file.read_text(encoding="utf-8", errors="ignore")
     result: dict[str, Any] = {
@@ -423,6 +633,11 @@ def parse_schematic_file(sch_file: Path) -> dict[str, Any]:
             regular_symbols.append(symbol)
     result["symbols"] = regular_symbols
     return result
+
+
+def parse_schematic_file(sch_file: Path) -> dict[str, Any]:
+    """Parse a schematic file through the active backend adapter."""
+    return get_schematic_backend().parse_schematic_file(sch_file)
 
 
 def _extract_uuid(content: str) -> str:
@@ -1040,7 +1255,7 @@ def _find_placed_symbol_block(
     return None
 
 
-def transactional_write(mutator: Callable[[str], str]) -> str:
+def _legacy_transactional_write(mutator: Callable[[str], str]) -> str:
     """Read, mutate, validate, and atomically rewrite the active schematic."""
     sch_file = _get_schematic_file()
     current = sch_file.read_text(encoding="utf-8")
@@ -1053,7 +1268,12 @@ def transactional_write(mutator: Callable[[str], str]) -> str:
     return str(sch_file)
 
 
-def update_symbol_property(reference: str, field: str, value: str) -> str:
+def transactional_write(mutator: Callable[[str], str]) -> str:
+    """Read, mutate, validate, and atomically rewrite the active schematic."""
+    return get_schematic_backend().transactional_write(mutator)
+
+
+def _legacy_update_symbol_property(reference: str, field: str, value: str) -> str:
     """Update a symbol property in the active schematic."""
     payload = UpdatePropertiesInput(reference=reference, field=field, value=value)
 
@@ -1091,11 +1311,16 @@ def update_symbol_property(reference: str, field: str, value: str) -> str:
             new_block = block[:insert_point] + property_block + block[insert_point:]
         return current[:start] + new_block + current[end:]
 
-    transactional_write(mutator)
+    _legacy_transactional_write(mutator)
     return f"Updated {payload.reference}.{payload.field}."
 
 
-def _reload_schematic() -> str:
+def update_symbol_property(reference: str, field: str, value: str) -> str:
+    """Update a symbol property through the active backend adapter."""
+    return get_schematic_backend().update_symbol_property(reference, field, value)
+
+
+def _legacy_reload_schematic() -> str:
     try:
         from kipy.proto.common.commands import editor_commands_pb2
         from kipy.proto.common.types.base_types_pb2 import DocumentType
@@ -1119,6 +1344,11 @@ def _reload_schematic() -> str:
     except Exception as exc:
         logger.debug("schematic_reload_failed", error=str(exc))
         return "The schematic was updated. Reload it manually in KiCad if needed."
+
+
+def _reload_schematic() -> str:
+    """Reload the schematic through the active backend adapter."""
+    return get_schematic_backend().reload_schematic()
 
 
 def register(mcp: FastMCP) -> None:
