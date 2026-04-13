@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/kicad-mcp-pro.svg)](https://pypi.org/project/kicad-mcp-pro/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Smithery](https://img.shields.io/badge/Smithery-ready-blue)](https://smithery.ai/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
 [![KiCad 9+](https://img.shields.io/badge/KiCad-9%2B-success.svg)](https://www.kicad.org/download/)
 [![MCP 1.6+](https://img.shields.io/badge/MCP-1.6%2B-purple.svg)](https://modelcontextprotocol.io/)
 
@@ -125,7 +125,7 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 ## Prerequisites
 
 - KiCad 9.0 or 10.0+ installed.
-- Python 3.11+.
+- Python 3.12+.
 - For live IPC tools, KiCad must be running with the IPC API available.
 - For HTTP transport, install the `http` extra: `pip install "kicad-mcp-pro[http]"`.
 

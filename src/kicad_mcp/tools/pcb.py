@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, cast
 
 import structlog
 from kipy.board_types import (
@@ -44,7 +44,6 @@ from ..utils.units import mm_to_nm, nm_to_mm
 from .schematic import parse_schematic_file
 
 logger = structlog.get_logger(__name__)
-T = TypeVar("T")
 BOARD_FILE_VERSION = "20250216"
 STRING_PATTERN = r'"((?:\\.|[^"\\])*)"'
 FLOAT_PATTERN = r"-?\d+(?:\.\d+)?"
@@ -97,7 +96,7 @@ def _coord_nm(point: object, axis: str) -> int:
     return int(value)
 
 
-def _limit(items: Iterable[T]) -> tuple[list[T], int]:
+def _limit[T](items: Iterable[T]) -> tuple[list[T], int]:
     cfg = get_config()
     collected = list(items)
     return collected[: cfg.max_items_per_response], len(collected)

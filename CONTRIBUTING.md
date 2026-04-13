@@ -3,11 +3,14 @@
 ## Setup
 
 ```bash
+uv python install 3.12
 uv sync --all-extras
 uv run ruff check src/ tests/
 uv run python -m mypy src/kicad_mcp/
 uv run python -m pytest tests/unit/ tests/integration/ tests/e2e/ -q
 ```
+
+- The v2 development baseline is Python 3.12+.
 
 ## Local CI Guards
 
