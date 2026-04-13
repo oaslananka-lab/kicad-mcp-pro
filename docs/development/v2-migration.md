@@ -70,3 +70,19 @@ v2 also adds a board-focused PDN and thermal review category:
 
 This surface gives agents a lightweight way to review rail sizing, local
 decoupling, copper spreading, and stitched thermal escape plans before final DRC.
+
+## EMC Surface
+
+v2 adds EMC-oriented board heuristics and a bundled sweep:
+
+- `emc_check_ground_plane_voids`
+- `emc_check_return_path_continuity`
+- `emc_check_split_plane_crossing`
+- `emc_check_decoupling_placement`
+- `emc_check_via_stitching`
+- `emc_check_differential_pair_symmetry`
+- `emc_check_high_speed_routing_rules`
+- `emc_run_full_compliance`
+
+The bundled compliance sweep runs ten named checks and returns pass/warn/fail
+text so agents can surface EMC risk early in the layout cycle.

@@ -1,6 +1,7 @@
 """Tool modules."""
 
 from . import (
+    emc_compliance,
     export,
     library,
     pcb,
@@ -15,6 +16,7 @@ from . import (
 )
 
 __all__ = [
+    "emc_compliance",
     "export",
     "library",
     "pcb",

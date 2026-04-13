@@ -217,6 +217,19 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "thermal_check_copper_pour",
         ],
     },
+    "emc": {
+        "description": "Run lightweight EMC-oriented layout checks and a bundled compliance sweep.",
+        "tools": [
+            "emc_check_ground_plane_voids",
+            "emc_check_return_path_continuity",
+            "emc_check_split_plane_crossing",
+            "emc_check_decoupling_placement",
+            "emc_check_via_stitching",
+            "emc_check_differential_pair_symmetry",
+            "emc_check_high_speed_routing_rules",
+            "emc_run_full_compliance",
+        ],
+    },
     "simulation": {
         "description": "Run SPICE operating-point, AC, transient, DC sweep, and stability checks.",
         "tools": [

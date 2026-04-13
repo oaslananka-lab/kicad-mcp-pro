@@ -13,6 +13,7 @@ from .config import get_config, reset_config
 from .prompts import workflows
 from .resources import board_state
 from .tools import (
+    emc_compliance,
     export,
     library,
     pcb,
@@ -68,6 +69,8 @@ def build_server(profile: str | None = None) -> FastMCP:
         routing.register(server)
     if "power_integrity" in enabled:
         power_integrity.register(server)
+    if "emc" in enabled:
+        emc_compliance.register(server)
     if "signal_integrity" in enabled:
         signal_integrity.register(server)
     if "simulation" in enabled:

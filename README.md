@@ -22,6 +22,7 @@ Primary CI/CD and release automation runs in Azure DevOps. GitHub Actions in thi
 - Export tools for Gerber, drill, BOM, PDF, netlist, STEP, render, pick-and-place, IPC-2581, SVG, and DXF.
 - Signal integrity tools for impedance synthesis, differential skew checks, stackup planning, via-stub review, and decoupling heuristics.
 - Power integrity tools for voltage-drop estimation, copper current checks, plane generation, and thermal via guidance.
+- EMC tools for plane coverage, return-path review, via stitching, diff-pair symmetry, and bundled compliance sweeps.
 - Simulation tools for SPICE operating-point, AC, transient, DC sweep, and loop-stability checks.
 - MCP resources for live board/project state and prompts for first-board, schematic-to-PCB, and manufacturing workflows.
 - Server profiles (`full`, `minimal`, `pcb`, `schematic`, `manufacturing`) to reduce tool surface for clients.
@@ -367,6 +368,20 @@ against your fabricator stackup and final KiCad rule setup before tape-out.
 These tools focus on quick PDN sanity checks: whether a rail looks too resistive,
 whether routed copper is undersized, whether a local plane exists, and how much
 thermal stitching is likely needed around hotter regions.
+
+### EMC
+
+- `emc_check_ground_plane_voids`
+- `emc_check_return_path_continuity`
+- `emc_check_split_plane_crossing`
+- `emc_check_decoupling_placement`
+- `emc_check_via_stitching`
+- `emc_check_differential_pair_symmetry`
+- `emc_check_high_speed_routing_rules`
+- `emc_run_full_compliance`
+
+These EMC helpers use board-state heuristics so an agent can quickly flag likely
+return-path, stitching, plane, and decoupling problems before a manual SI/EMI review.
 
 ## Workflows
 
