@@ -45,6 +45,8 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
         "tools": [
             "kicad_set_project",
             "kicad_get_project_info",
+            "project_set_design_intent",
+            "project_get_design_intent",
             "kicad_list_recent_projects",
             "kicad_scan_directory",
             "kicad_create_new_project",
@@ -187,6 +189,13 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
     "validation": {
         "description": "Design validation, DFM checks, and rule inspection.",
         "tools": [
+            "schematic_quality_gate",
+            "schematic_connectivity_gate",
+            "pcb_quality_gate",
+            "pcb_placement_quality_gate",
+            "pcb_score_placement",
+            "manufacturing_quality_gate",
+            "project_quality_gate",
             "check_design_for_manufacture",
             "get_unconnected_nets",
             "get_courtyard_violations",

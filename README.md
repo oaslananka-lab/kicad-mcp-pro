@@ -14,17 +14,20 @@ Primary CI/CD and release automation runs in Azure DevOps. GitHub Actions in thi
 ## Features
 
 - Project-first workflow with `kicad_set_project()`, recent project discovery, and safe path handling.
+- Project intent helpers with `project_set_design_intent()` and `project_get_design_intent()` for connector, decoupling, RF, and fab assumptions.
 - KiCad 10.x-first runtime with best-effort 9.x support and cross-platform CLI/library discovery.
 - PCB tools for board inspection, tracks, vias, footprints, text, shapes, outline editing, and zone refill.
 - Schematic tools for symbols, wires, labels, buses, no-connect markers, property updates, annotation, netlist-aware auto-layout, and IPC reload.
 - Library tools for symbol search, footprint search, datasheet lookup, footprint assignment, and custom symbol generation.
 - Validation tools for DRC, ERC, DFM, courtyard issues, silk overlaps, and schematic-versus-PCB footprint checks.
+- Project quality gates for schematic, schematic connectivity, PCB, placement, manufacturing, and release readiness before fabrication exports.
 - Export tools for Gerber, drill, BOM, PDF, netlist, STEP, render, pick-and-place, IPC-2581, SVG, and DXF.
 - Signal integrity tools for impedance synthesis, differential skew checks, stackup planning, via-stub review, and decoupling heuristics.
 - Power integrity tools for voltage-drop estimation, copper current checks, plane generation, and thermal via guidance.
 - EMC tools for plane coverage, return-path review, via stitching, diff-pair symmetry, and bundled compliance sweeps.
 - Simulation tools for SPICE operating-point, AC, transient, DC sweep, and loop-stability checks.
-- MCP resources for live board/project state and prompts for first-board, schematic-to-PCB, and manufacturing workflows.
+- MCP resources for live board/project state, quality gates, fix queues, connectivity, and placement review.
+- Prompt workflows for first-board, schematic-to-PCB, manufacturing release, design review loops, and critic/fixer iterations.
 - Server profiles (`full`, `minimal`, `schematic_only`, `pcb_only`, `manufacturing`, `high_speed`, `power`, `simulation`, `analysis`) to reduce tool surface for clients. Legacy `pcb` and `schematic` aliases remain available.
 
 ## Quick Start
@@ -192,6 +195,8 @@ aliases `pcb` and `schematic` still work for older clients.
 - `kicad_list_tool_categories`
 - `kicad_get_tools_in_category`
 - `kicad_help`
+- `project_set_design_intent`
+- `project_get_design_intent`
 
 ### PCB
 
@@ -326,7 +331,14 @@ that provide the required credentials.
 
 - `run_drc`
 - `run_erc`
+- `schematic_quality_gate`
+- `schematic_connectivity_gate`
 - `validate_design`
+- `pcb_quality_gate`
+- `pcb_placement_quality_gate`
+- `pcb_score_placement`
+- `manufacturing_quality_gate`
+- `project_quality_gate`
 - `check_design_for_manufacture`
 - `get_unconnected_nets`
 - `get_courtyard_violations`
@@ -348,6 +360,15 @@ that provide the required credentials.
 - `export_dxf`
 - `get_board_stats`
 - `export_manufacturing_package`
+
+`export_manufacturing_package` is now a release-only helper. It first runs the full
+`project_quality_gate()` and hard-blocks the package when the design is still `FAIL`
+or `BLOCKED`. Use the low-level export tools for debugging artifacts while iterating,
+then use the manufacturing package only after the project gate is clean.
+
+`pcb_placement_quality_gate()` is the blocking geometry/context gate. `pcb_score_placement()`
+adds softer density and spread heuristics so an agent can improve layout quality before a
+hard failure happens.
 
 ### DFM
 
@@ -457,6 +478,23 @@ state before rolling files back to a checkpoint commit.
 - [First PCB](docs/workflows/first-pcb.md)
 - [Schematic to PCB](docs/workflows/schematic-to-pcb.md)
 - [Manufacturing Package Export](docs/workflows/manufacturing-export.md)
+
+The built-in MCP prompt set now also includes:
+
+- `design_review_loop`
+- `fix_blocking_issues`
+- `manufacturing_release_checklist`
+
+The resource surface now exposes:
+
+- `kicad://project/quality_gate`
+- `kicad://project/fix_queue`
+- `kicad://schematic/connectivity`
+- `kicad://board/placement_quality`
+
+For regression coverage, the repository also ships a benchmark and failure corpus under
+`tests/fixtures/benchmark_projects/`. These fixtures are used to prove that clean projects
+can reach release export while known-bad projects stay hard-blocked.
 
 ## Contributing
 

@@ -53,17 +53,77 @@ Move a design from schematic capture to PCB layout.
     def manufacturing_export() -> list[TextContent]:
         """Checklist for manufacturing exports."""
         text = """
-Run a manufacturing readiness pass.
+Run a manufacturing release pass. Treat `export_manufacturing_package()` as a release
+step, not a debugging shortcut.
 
-1. `run_drc()`
-2. `run_erc()`
-3. `get_board_stats()`
-4. `check_design_for_manufacture()`
-5. `export_gerber()`
-6. `export_drill()`
-7. `export_bom()`
-8. `export_pick_and_place()`
-9. `export_ipc2581()`
-10. `export_manufacturing_package()`
+1. `project_quality_gate()`
+2. If the gate is not `PASS`, stop and fix the blocking issues first.
+3. `run_drc()`
+4. `run_erc()`
+5. `get_board_stats()`
+6. `check_design_for_manufacture()`
+7. Use low-level export tools only for debugging if needed:
+   - `export_gerber()`
+   - `export_drill()`
+   - `export_bom()`
+   - `export_pick_and_place()`
+   - `export_ipc2581()`
+8. Only after a clean gate, call `export_manufacturing_package()`.
+""".strip()
+        return [TextContent(type="text", text=text)]
+
+    @mcp.prompt()
+    def design_review_loop() -> list[TextContent]:
+        """Closed-loop inspection workflow driven by quality gates."""
+        text = """
+Run a closed-loop design review instead of trusting a single build pass.
+
+1. Inspect the current context:
+   - `kicad://project/info`
+   - `kicad://project/quality_gate`
+   - `kicad://project/fix_queue`
+   - `kicad://schematic/connectivity`
+   - `kicad://board/placement_quality`
+2. Call the blocking gate tools directly when you need fresh detail:
+   - `project_quality_gate()`
+   - `schematic_connectivity_gate()`
+   - `pcb_score_placement()`
+3. Fix the highest-severity blocking issue first.
+4. Re-run the relevant gates after every fix.
+5. Repeat until the full project gate is `PASS`.
+6. Only then move on to release exports.
+""".strip()
+        return [TextContent(type="text", text=text)]
+
+    @mcp.prompt()
+    def fix_blocking_issues() -> list[TextContent]:
+        """Prompt focused on consuming the fix queue and clearing blockers."""
+        text = """
+Use the project fix queue as the source of truth for what to fix next.
+
+1. Read `kicad://project/fix_queue`.
+2. Pick item 1 unless a more severe blocker appears after re-running a gate.
+3. Use the suggested tool on that line to inspect or repair the issue.
+4. Re-run `project_quality_gate()` after the fix.
+5. Stop only when the queue says there are no blocking issues left.
+""".strip()
+        return [TextContent(type="text", text=text)]
+
+    @mcp.prompt()
+    def manufacturing_release_checklist() -> list[TextContent]:
+        """Final release checklist for fab-ready handoff."""
+        text = """
+Treat manufacturing release as a gated handoff.
+
+1. Read `kicad://project/quality_gate`.
+2. If the project gate is not `PASS`, stop immediately and clear blockers.
+3. Read `kicad://project/fix_queue` to confirm nothing actionable remains.
+4. Re-run:
+   - `project_quality_gate()`
+   - `run_drc()`
+   - `run_erc()`
+   - `check_design_for_manufacture()`
+5. Use low-level export tools only for debugging artifacts.
+6. Release with `export_manufacturing_package()` only after every gate is clean.
 """.strip()
         return [TextContent(type="text", text=text)]

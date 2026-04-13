@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
+from typing import Any
 
 import structlog
 from mcp.server.fastmcp import FastMCP
@@ -33,6 +34,35 @@ class CreateProjectInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
 
+class DecouplingPairIntent(BaseModel):
+    """Intent describing which capacitors should stay close to an IC."""
+
+    ic_ref: str = Field(min_length=1, max_length=50)
+    cap_refs: list[str] = Field(min_length=1, max_length=20)
+    max_distance_mm: float = Field(default=3.0, gt=0.0, le=50.0)
+
+
+class RFKeepoutIntent(BaseModel):
+    """Intent describing an RF-sensitive keepout area."""
+
+    name: str = Field(default="RF Keepout", min_length=1, max_length=100)
+    x_mm: float
+    y_mm: float
+    w_mm: float = Field(gt=0.0, le=5000.0)
+    h_mm: float = Field(gt=0.0, le=5000.0)
+
+
+class ProjectDesignIntent(BaseModel):
+    """Persisted high-level design intent used by validation and workflow tools."""
+
+    connector_refs: list[str] = Field(default_factory=list)
+    decoupling_pairs: list[DecouplingPairIntent] = Field(default_factory=list)
+    critical_nets: list[str] = Field(default_factory=list)
+    rf_keepout_regions: list[RFKeepoutIntent] = Field(default_factory=list)
+    manufacturer: str = Field(default="")
+    manufacturer_tier: str = Field(default="")
+
+
 def _render_project_info() -> str:
     cfg = get_config()
     cli_status = "found" if cfg.kicad_cli.exists() else "missing"
@@ -56,6 +86,106 @@ def _new_project_files(project_dir: Path, name: str) -> tuple[Path, Path, Path]:
     pcb_file = project_dir / f"{name}.kicad_pcb"
     sch_file = project_dir / f"{name}.kicad_sch"
     return project_file, pcb_file, sch_file
+
+
+def _design_intent_path() -> Path:
+    cfg = get_config()
+    if cfg.project_dir is None:
+        raise ValueError(
+            "No project is configured. "
+            "Call kicad_set_project() or kicad_create_new_project() first."
+        )
+    return cfg.ensure_output_dir() / "design_intent.json"
+
+
+def _normalized_unique(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(cleaned)
+    return ordered
+
+
+def _normalize_design_intent(intent: ProjectDesignIntent) -> ProjectDesignIntent:
+    return ProjectDesignIntent.model_validate(
+        {
+            "connector_refs": _normalized_unique(intent.connector_refs),
+            "decoupling_pairs": [
+                {
+                    "ic_ref": pair.ic_ref.strip(),
+                    "cap_refs": _normalized_unique(pair.cap_refs),
+                    "max_distance_mm": pair.max_distance_mm,
+                }
+                for pair in intent.decoupling_pairs
+            ],
+            "critical_nets": _normalized_unique(intent.critical_nets),
+            "rf_keepout_regions": [region.model_dump() for region in intent.rf_keepout_regions],
+            "manufacturer": intent.manufacturer.strip(),
+            "manufacturer_tier": intent.manufacturer_tier.strip(),
+        }
+    )
+
+
+def load_design_intent() -> ProjectDesignIntent:
+    """Load the persisted project design intent, or return defaults if none exists."""
+    path = _design_intent_path()
+    if not path.exists():
+        return ProjectDesignIntent()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("design_intent_load_failed", path=str(path), error=str(exc))
+        return ProjectDesignIntent()
+    return _normalize_design_intent(ProjectDesignIntent.model_validate(payload))
+
+
+def save_design_intent(intent: ProjectDesignIntent) -> Path:
+    """Persist the normalized project design intent to the output directory."""
+    path = _design_intent_path()
+    normalized = _normalize_design_intent(intent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(normalized.model_dump(), indent=2), encoding="utf-8")
+    return path
+
+
+def _render_design_intent(intent: ProjectDesignIntent) -> str:
+    lines = ["Project design intent:"]
+    lines.append(
+        "- Connector refs: "
+        + (", ".join(intent.connector_refs) if intent.connector_refs else "(none)")
+    )
+    lines.append(
+        "- Critical nets: "
+        + (", ".join(intent.critical_nets) if intent.critical_nets else "(none)")
+    )
+    lines.append(
+        "- Manufacturer: "
+        + (
+            f"{intent.manufacturer} / {intent.manufacturer_tier}"
+            if intent.manufacturer or intent.manufacturer_tier
+            else "(none)"
+        )
+    )
+    lines.append(f"- Decoupling pairs: {len(intent.decoupling_pairs)}")
+    for pair in intent.decoupling_pairs[:10]:
+        lines.append(
+            f"  {pair.ic_ref} <- {', '.join(pair.cap_refs)} "
+            f"(max {pair.max_distance_mm:.2f} mm)"
+        )
+    lines.append(f"- RF keepout regions: {len(intent.rf_keepout_regions)}")
+    for region in intent.rf_keepout_regions[:10]:
+        lines.append(
+            f"  {region.name}: center=({region.x_mm:.2f}, {region.y_mm:.2f}) "
+            f"size=({region.w_mm:.2f} x {region.h_mm:.2f}) mm"
+        )
+    return "\n".join(lines)
 
 
 def register(mcp: FastMCP) -> None:
@@ -98,6 +228,52 @@ def register(mcp: FastMCP) -> None:
     def kicad_get_project_info() -> str:
         """Show the currently configured KiCad project paths."""
         return _render_project_info()
+
+    @mcp.tool()
+    @headless_compatible
+    def project_set_design_intent(
+        connector_refs: list[str] | None = None,
+        decoupling_pairs: list[dict[str, Any]] | None = None,
+        critical_nets: list[str] | None = None,
+        rf_keepout_regions: list[dict[str, Any]] | None = None,
+        manufacturer: str = "",
+        manufacturer_tier: str = "",
+    ) -> str:
+        """Store minimal design intent used by placement and release-quality gates."""
+        existing = load_design_intent()
+        updated = ProjectDesignIntent(
+            connector_refs=existing.connector_refs if connector_refs is None else connector_refs,
+            decoupling_pairs=(
+                existing.decoupling_pairs if decoupling_pairs is None else decoupling_pairs
+            ),
+            critical_nets=existing.critical_nets if critical_nets is None else critical_nets,
+            rf_keepout_regions=(
+                existing.rf_keepout_regions
+                if rf_keepout_regions is None
+                else rf_keepout_regions
+            ),
+            manufacturer=existing.manufacturer if not manufacturer else manufacturer,
+            manufacturer_tier=(
+                existing.manufacturer_tier if not manufacturer_tier else manufacturer_tier
+            ),
+        )
+        path = save_design_intent(updated)
+        return (
+            f"Stored project design intent at {path}.\n"
+            f"{_render_design_intent(_normalize_design_intent(updated))}"
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def project_get_design_intent() -> str:
+        """Show the persisted project design intent used by placement and release gates."""
+        intent = load_design_intent()
+        if intent == ProjectDesignIntent():
+            return (
+                "No explicit project design intent is stored yet.\n"
+                f"{_render_design_intent(intent)}"
+            )
+        return _render_design_intent(intent)
 
     @mcp.tool()
     @headless_compatible

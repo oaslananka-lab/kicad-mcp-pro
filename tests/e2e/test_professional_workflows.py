@@ -7,6 +7,7 @@ from kipy.proto.board.board_types_pb2 import BoardLayer
 
 from kicad_mcp.discovery import CliCapabilities
 from kicad_mcp.server import build_server
+from kicad_mcp.tools.validation import GateOutcome
 from kicad_mcp.utils.component_search import ComponentRecord
 from kicad_mcp.utils.ngspice import SimulationResult, SimulationTrace
 from tests.conftest import call_tool_text
@@ -89,6 +90,41 @@ async def test_scenario_1_mcu_board_workflow(
     monkeypatch.setattr(
         "kicad_mcp.tools.library._component_search_client",
         lambda source: _WorkflowComponentClient(),
+    )
+    monkeypatch.setattr(
+        "kicad_mcp.tools.validation._evaluate_project_gate",
+        lambda **_kwargs: [
+            GateOutcome(
+                name="Schematic",
+                status="PASS",
+                summary="ERC is clean.",
+                details=["ERC violations: 0"],
+            ),
+            GateOutcome(
+                name="PCB",
+                status="PASS",
+                summary="PCB passes DRC, unconnected, and courtyard checks.",
+                details=["DRC violations: 0"],
+            ),
+            GateOutcome(
+                name="Placement",
+                status="PASS",
+                summary="Footprint placement is geometrically sane.",
+                details=["Overlaps: 0"],
+            ),
+            GateOutcome(
+                name="Manufacturing",
+                status="PASS",
+                summary="DFM checks passed.",
+                details=["Profile: JLCPCB / standard"],
+            ),
+            GateOutcome(
+                name="Footprint parity",
+                status="PASS",
+                summary="PCB and schematic references are aligned.",
+                details=["Missing on board: 0"],
+            ),
+        ],
     )
     server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})

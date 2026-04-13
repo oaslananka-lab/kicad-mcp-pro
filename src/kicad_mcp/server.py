@@ -9,7 +9,9 @@ import typer
 from mcp.server.fastmcp import FastMCP
 
 from . import __version__
-from .config import get_config, reset_config
+from .config import KiCadMCPConfig, get_config, reset_config
+from .connection import KiCadConnectionError, get_board
+from .discovery import find_kicad_version
 from .prompts import workflows
 from .resources import board_state
 from .tools import (
@@ -87,6 +89,27 @@ def build_server(profile: str | None = None) -> FastMCP:
     return server
 
 
+def _ipc_status_summary() -> str:
+    try:
+        get_board()
+    except KiCadConnectionError as exc:
+        return f"unavailable ({str(exc).splitlines()[0]})"
+    return "connected (PCB editor available)"
+
+
+def _print_startup_diagnostics(cfg: KiCadMCPConfig) -> None:
+    """Emit a concise startup summary without writing directly to stdio transport."""
+    logger.info(
+        "startup_diagnostics",
+        profile=cfg.profile,
+        kicad_cli=str(cfg.kicad_cli),
+        kicad_version=find_kicad_version(cfg.kicad_cli) or "unknown",
+        project_dir=str(cfg.project_dir) if cfg.project_dir else None,
+        gate_mode="hard-block",
+        ipc_status=_ipc_status_summary(),
+    )
+
+
 @app.callback(invoke_without_command=True)
 def main_callback(
     transport: str = typer.Option("stdio", help="Transport: stdio, http, sse, streamable-http"),
@@ -117,6 +140,7 @@ def main_callback(
 
     selected_transport = "stdio" if cfg.transport == "stdio" else "streamable-http"
     server = build_server(cfg.profile)
+    _print_startup_diagnostics(cfg)
     logger.info(
         "starting_kicad_mcp_pro",
         version=__version__,

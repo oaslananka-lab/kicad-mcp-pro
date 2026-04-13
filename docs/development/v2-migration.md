@@ -182,3 +182,59 @@ Large PCB read tools now support pagination/filtering:
 
 - `pcb_get_tracks(page=1, page_size=100, filter_layer="", filter_net="")`
 - `pcb_get_footprints(page=1, page_size=50, filter_layer="")`
+
+## Release Gating And Connectivity
+
+v2 now treats manufacturing export as a release step instead of a convenience shortcut.
+
+- `export_manufacturing_package` now hard-blocks when `project_quality_gate()` is not clean.
+- `project_quality_gate()` now aggregates:
+  - `schematic_quality_gate`
+  - `schematic_connectivity_gate`
+  - `pcb_quality_gate`
+  - `pcb_placement_quality_gate`
+  - `manufacturing_quality_gate`
+  - footprint parity checks
+
+The new `schematic_connectivity_gate` exists because ERC alone is not enough for agent-made
+designs. It catches structural smells such as label-only pages, top/child-sheet contract
+mismatches, unnamed single-pin groups, and footprint-assigned symbols that never form a
+meaningful signal or power connection.
+
+## Placement Scoring And Design Intent
+
+v2 adds a second layer on top of the blocking placement gate:
+
+- `pcb_placement_quality_gate` keeps the hard-fail rules
+- `pcb_score_placement` reports softer quality heuristics and warnings
+
+To make those checks contextual instead of purely geometric, the project surface now includes:
+
+- `project_set_design_intent`
+- `project_get_design_intent`
+
+The persisted design-intent schema currently carries:
+
+- `connector_refs`
+- `decoupling_pairs`
+- `critical_nets`
+- `rf_keepout_regions`
+- `manufacturer`
+- `manufacturer_tier`
+
+## Benchmark And Failure Corpus
+
+The repository now includes a benchmark release corpus under:
+
+- `tests/fixtures/benchmark_projects/pass_minimal_mcu_board`
+- `tests/fixtures/benchmark_projects/pass_sensor_node`
+- `tests/fixtures/benchmark_projects/fail_label_only_schematic`
+- `tests/fixtures/benchmark_projects/fail_footprint_overlap_board`
+- `tests/fixtures/benchmark_projects/fail_dfm_edge_clearance`
+- `tests/fixtures/benchmark_projects/fail_sismosmart_like_hierarchy`
+
+These fixtures are used by release-gate tests to ensure that:
+
+- clean benchmark projects can proceed to manufacturing export
+- known-bad projects stay blocked
+- the correct subsystem is blamed in `project_quality_gate()`

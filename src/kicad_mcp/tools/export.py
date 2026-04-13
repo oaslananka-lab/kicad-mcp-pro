@@ -537,6 +537,19 @@ def register(mcp: FastMCP) -> None:
     @headless_compatible
     def export_manufacturing_package() -> str:
         """Generate the standard set of manufacturing exports."""
+        from .validation import _evaluate_project_gate, _render_project_gate_report
+
+        outcomes = _evaluate_project_gate()
+        blocking = [outcome for outcome in outcomes if outcome.status != "PASS"]
+        if blocking:
+            return _render_project_gate_report(
+                blocking,
+                summary=(
+                    "- Manufacturing package export is hard-blocked until the full "
+                    "project quality gate passes."
+                ),
+            )
+
         results = [
             export_gerber(),
             export_drill(),

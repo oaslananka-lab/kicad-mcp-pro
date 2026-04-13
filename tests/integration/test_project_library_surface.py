@@ -78,6 +78,8 @@ async def test_project_resources_prompts_and_library_surface(
     assert "pcb_only" in categories
     assert "analysis" in categories
     assert "kicad_get_version" in category_tools
+    assert "project_set_design_intent [HEADLESS]" in category_tools
+    assert "project_get_design_intent [HEADLESS]" in category_tools
     assert "pcb_auto_place_by_schematic" in pcb_write_tools
     assert "pcb_set_stackup" in pcb_write_tools
     assert "pcb_add_blind_via" in pcb_write_tools
@@ -116,6 +118,10 @@ async def test_project_resources_prompts_and_library_surface(
     project_resource = await read_resource_text(server, "kicad://project/info")
     board_summary = await read_resource_text(server, "kicad://board/summary")
     board_netlist = await read_resource_text(server, "kicad://board/netlist")
+    quality_gate_resource = await read_resource_text(server, "kicad://project/quality_gate")
+    fix_queue_resource = await read_resource_text(server, "kicad://project/fix_queue")
+    connectivity_resource = await read_resource_text(server, "kicad://schematic/connectivity")
+    placement_resource = await read_resource_text(server, "kicad://board/placement_quality")
     first_pcb = await get_prompt_text(
         server,
         "first_pcb",
@@ -123,13 +129,26 @@ async def test_project_resources_prompts_and_library_surface(
     )
     schematic_to_pcb = await get_prompt_text(server, "schematic_to_pcb", {})
     manufacturing = await get_prompt_text(server, "manufacturing_export", {})
+    design_review_loop = await get_prompt_text(server, "design_review_loop", {})
+    fix_blocking_issues = await get_prompt_text(server, "fix_blocking_issues", {})
+    release_checklist = await get_prompt_text(server, "manufacturing_release_checklist", {})
 
     assert "Project directory:" in project_resource
     assert "Board summary" in board_summary
     assert "(kicad_pcb)" in board_netlist
+    assert "Project quality gate:" in quality_gate_resource
+    assert "Project fix queue" in fix_queue_resource
+    assert "Schematic connectivity quality gate:" in connectivity_resource
+    assert "Placement score:" in placement_resource
     assert "20x20" in first_pcb
     assert "schematic capture" in schematic_to_pcb.lower()
-    assert "manufacturing readiness" in manufacturing.lower()
+    assert "manufacturing release pass" in manufacturing.lower()
+    assert "project_quality_gate" in manufacturing
+    assert "closed-loop design review" in design_review_loop.lower()
+    assert "kicad://project/fix_queue" in design_review_loop
+    assert "source of truth" in fix_blocking_issues.lower()
+    assert "gated handoff" in release_checklist.lower()
+    assert "export_manufacturing_package" in release_checklist
 
     await call_tool_text(
         server,

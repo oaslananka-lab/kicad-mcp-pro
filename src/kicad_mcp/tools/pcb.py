@@ -675,6 +675,15 @@ def _footprint_size_from_assignment(assignment: str) -> tuple[float, float]:
     return _bbox_from_block(path.read_text(encoding="utf-8", errors="ignore"))
 
 
+def _footprint_net_names(block: str) -> list[str]:
+    names: set[str] = set()
+    for pad_block in _iter_blocks(block, "pad"):
+        match = re.search(rf"\(net\s+\d+\s+{STRING_PATTERN}\)", pad_block)
+        if match is not None and match.group(1):
+            names.add(match.group(1))
+    return sorted(names)
+
+
 def _parse_board_footprint_blocks(content: str) -> dict[str, dict[str, Any]]:
     footprints: dict[str, dict[str, Any]] = {}
     cursor = 0
@@ -699,6 +708,7 @@ def _parse_board_footprint_blocks(content: str) -> dict[str, dict[str, Any]]:
                         "width_mm": width_mm,
                         "height_mm": height_mm,
                         "layer_name": layer_match.group(1) if layer_match else "F.Cu",
+                        "net_names": _footprint_net_names(block),
                     }
                 cursor += length
                 continue
@@ -742,11 +752,11 @@ def _edge_cuts_bounds(content: str) -> tuple[float, float, float, float] | None:
     xs: list[float] = []
     ys: list[float] = []
     patterns = [
-        rf"\(gr_line\s+\(start\s+({FLOAT_PATTERN})\s+({FLOAT_PATTERN})\)\s+\(end\s+({FLOAT_PATTERN})\s+({FLOAT_PATTERN})\)[^\)]*\(layer\s+\"Edge\.Cuts\"\)",
-        rf"\(gr_rect\s+\(start\s+({FLOAT_PATTERN})\s+({FLOAT_PATTERN})\)\s+\(end\s+({FLOAT_PATTERN})\s+({FLOAT_PATTERN})\)[^\)]*\(layer\s+\"Edge\.Cuts\"\)",
+        rf"\(gr_line\s+\(start\s+({FLOAT_PATTERN})\s+({FLOAT_PATTERN})\)\s+\(end\s+({FLOAT_PATTERN})\s+({FLOAT_PATTERN})\).*?\(layer\s+\"Edge\.Cuts\"\)",
+        rf"\(gr_rect\s+\(start\s+({FLOAT_PATTERN})\s+({FLOAT_PATTERN})\)\s+\(end\s+({FLOAT_PATTERN})\s+({FLOAT_PATTERN})\).*?\(layer\s+\"Edge\.Cuts\"\)",
     ]
     for pattern in patterns:
-        for match in re.finditer(pattern, content):
+        for match in re.finditer(pattern, content, flags=re.DOTALL):
             xs.extend([float(match.group(1)), float(match.group(3))])
             ys.extend([float(match.group(2)), float(match.group(4))])
     if not xs or not ys:

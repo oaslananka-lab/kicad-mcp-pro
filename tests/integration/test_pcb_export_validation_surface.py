@@ -532,6 +532,13 @@ async def test_export_and_validation_surface(
         await call_tool_text(server, "run_drc", {"save_report": True}),
         await call_tool_text(server, "run_erc", {"save_report": True}),
         await call_tool_text(server, "validate_design", {}),
+        await call_tool_text(server, "schematic_quality_gate", {}),
+        await call_tool_text(server, "schematic_connectivity_gate", {}),
+        await call_tool_text(server, "pcb_quality_gate", {}),
+        await call_tool_text(server, "pcb_placement_quality_gate", {}),
+        await call_tool_text(server, "pcb_score_placement", {}),
+        await call_tool_text(server, "manufacturing_quality_gate", {}),
+        await call_tool_text(server, "project_quality_gate", {}),
         await call_tool_text(server, "check_design_for_manufacture", {"jlcpcb": True}),
         await call_tool_text(server, "check_design_for_manufacture", {"jlcpcb": False}),
         await call_tool_text(server, "get_unconnected_nets", {}),
@@ -554,9 +561,17 @@ async def test_export_and_validation_surface(
     assert "SVG export completed" in joined
     assert "DXF export completed" in joined
     assert "Board size: 50 x 50 mm" in joined
+    assert "hard-blocked" in joined
     assert "DRC summary" in joined
     assert "ERC summary" in joined
     assert "Design validation summary" in joined
+    assert "Schematic quality gate" in joined
+    assert "Schematic connectivity quality gate" in joined
+    assert "PCB quality gate" in joined
+    assert "Placement quality gate" in joined
+    assert "Placement score:" in joined
+    assert "Manufacturing quality gate" in joined
+    assert "Project quality gate" in joined
     assert "DFM check" in joined
     assert "Unconnected nets" in joined
     assert "Courtyard violations" in joined
