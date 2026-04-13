@@ -16,6 +16,7 @@ from ..models.export import (
     ExportPdfInput,
     ExportRenderInput,
 )
+from .metadata import headless_compatible
 
 DEFAULT_PCB_PDF_LAYERS = ["F.Cu", "Edge.Cuts"]
 
@@ -110,6 +111,7 @@ def register(mcp: FastMCP) -> None:
     """Register export tools."""
 
     @mcp.tool()
+    @headless_compatible
     def export_gerber(output_subdir: str = "gerber", layers: list[str] | None = None) -> str:
         """Export Gerber manufacturing files."""
         payload = ExportGerberInput(output_subdir=output_subdir, layers=layers or [])
@@ -151,6 +153,7 @@ def register(mcp: FastMCP) -> None:
         return _format_file_list(files, f"Gerber export completed in {out_dir}:")
 
     @mcp.tool()
+    @headless_compatible
     def export_drill(output_subdir: str = "gerber") -> str:
         """Export drill files."""
         pcb_file = _get_pcb_file()
@@ -176,6 +179,7 @@ def register(mcp: FastMCP) -> None:
         return _format_file_list(files, f"Drill export completed in {out_dir}:")
 
     @mcp.tool()
+    @headless_compatible
     def export_bom(format: str = "csv") -> str:
         """Export a bill of materials."""
         payload = ExportBOMInput(format=format)
@@ -214,6 +218,7 @@ def register(mcp: FastMCP) -> None:
         return f"BOM exported to {out_file}\n\n{_read_preview(out_file)}"
 
     @mcp.tool()
+    @headless_compatible
     def export_netlist(format: str = "kicad") -> str:
         """Export a KiCad schematic netlist."""
         payload = ExportNetlistInput(format=format)
@@ -246,11 +251,13 @@ def register(mcp: FastMCP) -> None:
         return f"Netlist exported to {out_file}"
 
     @mcp.tool()
+    @headless_compatible
     def export_spice_netlist() -> str:
         """Export a SPICE netlist."""
         return str(export_netlist("spice"))
 
     @mcp.tool()
+    @headless_compatible
     def export_pcb_pdf(layers: list[str] | None = None) -> str:
         """Export the PCB to PDF."""
         payload = ExportPdfInput(layers=layers or [])
@@ -288,6 +295,7 @@ def register(mcp: FastMCP) -> None:
         return f"PCB PDF exported to {out_file}"
 
     @mcp.tool()
+    @headless_compatible
     def export_sch_pdf() -> str:
         """Export the schematic to PDF."""
         sch_file = _get_sch_file()
@@ -304,11 +312,13 @@ def register(mcp: FastMCP) -> None:
         return f"Schematic PDF exported to {out_file}"
 
     @mcp.tool()
+    @headless_compatible
     def export_3d_step() -> str:
         """Export a STEP model for the active board."""
         return str(export_step(""))
 
     @mcp.tool()
+    @headless_compatible
     def export_step(output_path: str = "") -> str:
         """Alias for STEP export with an optional explicit output path."""
         pcb_file = _get_pcb_file()
@@ -332,6 +342,7 @@ def register(mcp: FastMCP) -> None:
         return f"STEP model exported to {out_file}"
 
     @mcp.tool()
+    @headless_compatible
     def export_3d_render(
         output_file: str = "render.png",
         side: str = "top",
@@ -377,6 +388,7 @@ def register(mcp: FastMCP) -> None:
         return f"Rendered board image exported to {out_file}"
 
     @mcp.tool()
+    @headless_compatible
     def export_pick_and_place(format: str = "csv") -> str:
         """Export assembly position data."""
         pcb_file = _get_pcb_file()
@@ -414,6 +426,7 @@ def register(mcp: FastMCP) -> None:
         return f"Pick and place data exported to {out_file}"
 
     @mcp.tool()
+    @headless_compatible
     def export_ipc2581() -> str:
         """Export IPC-2581 manufacturing data."""
         pcb_file = _get_pcb_file()
@@ -433,6 +446,7 @@ def register(mcp: FastMCP) -> None:
         return f"IPC-2581 exported to {out_file}"
 
     @mcp.tool()
+    @headless_compatible
     def export_svg(layer: str = "F.Cu") -> str:
         """Export a board layer to SVG when supported."""
         pcb_file = _get_pcb_file()
@@ -462,6 +476,7 @@ def register(mcp: FastMCP) -> None:
         return _format_file_list(files, f"SVG export completed in {out_dir}:")
 
     @mcp.tool()
+    @headless_compatible
     def export_dxf(layer: str = "Edge.Cuts") -> str:
         """Export a board layer to DXF when supported."""
         pcb_file = _get_pcb_file()
@@ -501,6 +516,7 @@ def register(mcp: FastMCP) -> None:
         return _format_file_list(files, f"DXF export completed in {out_dir}:")
 
     @mcp.tool()
+    @headless_compatible
     def get_board_stats() -> str:
         """Export board statistics and return a readable preview."""
         pcb_file = _get_pcb_file()
@@ -518,6 +534,7 @@ def register(mcp: FastMCP) -> None:
         return stdout or "Board statistics were generated without a text report."
 
     @mcp.tool()
+    @headless_compatible
     def export_manufacturing_package() -> str:
         """Generate the standard set of manufacturing exports."""
         results = [

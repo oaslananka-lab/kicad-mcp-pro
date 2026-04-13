@@ -1,10 +1,12 @@
-"""Tool routing and server profiles."""
+"""Tool routing, metadata labels, and server profiles."""
 
 from __future__ import annotations
 
 from typing import TypedDict
 
 from mcp.server.fastmcp import FastMCP
+
+from .metadata import get_tool_metadata
 
 
 class ToolCategory(TypedDict):
@@ -24,6 +26,14 @@ def _display_tool_name(tool_name: str) -> str:
         suffixes.append("EXPERIMENTAL")
     if tool_name in DEPRECATED_TOOL_NAMES:
         suffixes.append("DEPRECATED")
+    metadata = get_tool_metadata(tool_name)
+    if metadata is not None:
+        if metadata.headless_compatible:
+            suffixes.append("HEADLESS")
+        if metadata.requires_kicad_running:
+            suffixes.append("REQUIRES_KICAD")
+        for dependency in metadata.dependencies:
+            suffixes.append(f"REQUIRES:{dependency}")
     if not suffixes:
         return tool_name
     return f"{tool_name} [{' / '.join(suffixes)}]"
@@ -277,15 +287,58 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
 PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
     "full": tuple(TOOL_CATEGORIES.keys()),
     "minimal": ("project", "pcb_read", "export"),
+    "schematic_only": ("project", "schematic", "library"),
+    "pcb_only": ("project", "pcb_read", "pcb_write", "routing"),
+    "manufacturing": ("project", "pcb_read", "export", "validation", "dfm"),
+    "high_speed": (
+        "project",
+        "schematic",
+        "pcb_read",
+        "pcb_write",
+        "routing",
+        "signal_integrity",
+        "emc",
+        "validation",
+        "export",
+    ),
+    "power": (
+        "project",
+        "schematic",
+        "pcb_read",
+        "pcb_write",
+        "power_integrity",
+        "validation",
+        "export",
+    ),
+    "simulation": ("project", "schematic", "simulation", "export", "library"),
+    "analysis": ("project", "pcb_read", "signal_integrity", "power_integrity", "emc", "validation"),
+    # Backward-compatible aliases kept for existing clients.
     "pcb": ("project", "pcb_read", "pcb_write", "routing", "export", "validation"),
     "schematic": ("project", "schematic", "library", "export", "validation"),
-    "manufacturing": ("project", "pcb_read", "export", "validation", "dfm"),
 }
 
 
 def categories_for_profile(profile: str) -> tuple[str, ...]:
     """Resolve categories enabled by the named server profile."""
     return PROFILE_CATEGORIES.get(profile, PROFILE_CATEGORIES["full"])
+
+
+def available_profiles() -> tuple[str, ...]:
+    """Return the supported server profile names."""
+    preferred = [
+        "full",
+        "minimal",
+        "schematic_only",
+        "pcb_only",
+        "manufacturing",
+        "high_speed",
+        "power",
+        "simulation",
+        "analysis",
+        "pcb",
+        "schematic",
+    ]
+    return tuple(name for name in preferred if name in PROFILE_CATEGORIES)
 
 
 def register(mcp: FastMCP) -> None:
@@ -301,6 +354,8 @@ def register(mcp: FastMCP) -> None:
             lines.append(str(info["description"]))
             lines.append(f"Tools: {len(tools)}")
             lines.append("")
+        lines.append("Profiles:")
+        lines.extend(f"- `{profile}`" for profile in available_profiles())
         return "\n".join(lines)
 
     @mcp.tool()

@@ -28,7 +28,7 @@ from .tools import (
     validation,
     version_control,
 )
-from .tools.router import categories_for_profile
+from .tools.router import available_profiles, categories_for_profile
 from .utils.logging import setup_logging
 
 logger = structlog.get_logger(__name__)
@@ -96,7 +96,7 @@ def main_callback(
     log_level: str = typer.Option("INFO", help="Log level"),
     log_format: str = typer.Option("console", help="Log format: console or json"),
     profile: str = typer.Option(
-        "full", help="Server profile: full, minimal, pcb, schematic, manufacturing"
+        "full", help=f"Server profile: {', '.join(available_profiles())}"
     ),
     experimental: bool = typer.Option(False, help="Enable experimental tools"),
 ) -> None:

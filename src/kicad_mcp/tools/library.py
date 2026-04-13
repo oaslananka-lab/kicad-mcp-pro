@@ -19,6 +19,7 @@ from ..utils.component_search import (
     normalize_lcsc_code,
 )
 from ..utils.sexpr import _extract_block
+from .metadata import headless_compatible
 from .schematic import get_schematic_backend, update_symbol_property
 
 _symbol_index: dict[str, dict[str, str]] | None = None
@@ -234,6 +235,7 @@ def register(mcp: FastMCP) -> None:
     """Register library tools."""
 
     @mcp.tool()
+    @headless_compatible
     def lib_list_libraries() -> str:
         """List configured symbol and footprint libraries."""
         symbol_libs = sorted(path.stem for path in _symbol_library_dir().glob("*.kicad_sym"))
@@ -246,6 +248,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def lib_search_symbols(query: str, library_filter: str = "") -> str:
         """Search symbol libraries by name, description, or keywords."""
         index = _get_symbol_index()
@@ -266,6 +269,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def lib_get_symbol_info(library: str, symbol_name: str) -> str:
         """Return details for a single symbol."""
         content = _read_symbol_file(library)
@@ -299,6 +303,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def lib_search_footprints(query: str, library_filter: str = "") -> str:
         """Search footprint libraries by footprint name."""
         root = _footprint_library_dir()
@@ -316,6 +321,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def lib_list_footprints(library: str) -> str:
         """List footprints in a specific library."""
         library_dir = _footprint_library_dir() / f"{library}.pretty"
@@ -327,6 +333,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def lib_rebuild_index() -> str:
         """Rebuild the in-memory symbol search index."""
         global _symbol_index
@@ -336,6 +343,7 @@ def register(mcp: FastMCP) -> None:
         return f"Rebuilt the symbol index with {count} entries."
 
     @mcp.tool()
+    @headless_compatible
     def lib_get_footprint_info(library: str, footprint: str) -> str:
         """Return details for a single footprint."""
         path = _footprint_file(library, footprint)
@@ -352,6 +360,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def lib_get_footprint_3d_model(library: str, footprint: str) -> str:
         """Return the configured 3D model path for a footprint."""
         path = _footprint_file(library, footprint)
@@ -364,6 +373,7 @@ def register(mcp: FastMCP) -> None:
         return model_match.group(1)
 
     @mcp.tool()
+    @headless_compatible
     def lib_assign_footprint(reference: str, library: str, footprint: str) -> str:
         """Assign a footprint property to a schematic symbol."""
         path = _footprint_file(library, footprint)
@@ -374,6 +384,7 @@ def register(mcp: FastMCP) -> None:
         return f"Assigned footprint '{assignment}' to '{reference}'."
 
     @mcp.tool()
+    @headless_compatible
     def lib_create_custom_symbol(name: str, pins: list[dict[str, Any]]) -> str:
         """Create a simple custom symbol in the active project directory."""
         cfg = get_config()
@@ -417,6 +428,7 @@ def register(mcp: FastMCP) -> None:
         return f"Created custom symbol '{name}' in {library_file}."
 
     @mcp.tool()
+    @headless_compatible
     def lib_get_datasheet_url(library: str, symbol_name: str) -> str:
         """Return a datasheet URL from the symbol library when available."""
         content = _read_symbol_file(library)
@@ -432,6 +444,7 @@ def register(mcp: FastMCP) -> None:
         return match.group(1)
 
     @mcp.tool()
+    @headless_compatible
     def lib_search_components(
         keyword: str,
         package: str = "",
@@ -460,6 +473,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def lib_get_component_details(lcsc_code_or_mpn: str, source: str = "jlcsearch") -> str:
         """Return live component detail for a specific LCSC code or MPN."""
         try:
@@ -485,6 +499,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def lib_assign_lcsc_to_symbol(reference: str, lcsc_code: str) -> str:
         """Assign an LCSC part code to a schematic symbol property."""
         normalized = normalize_lcsc_code(lcsc_code)
@@ -492,6 +507,7 @@ def register(mcp: FastMCP) -> None:
         return f"Assigned LCSC code '{normalized}' to '{reference}'."
 
     @mcp.tool()
+    @headless_compatible
     def lib_get_bom_with_pricing(quantity: int = 1, source: str = "jlcsearch") -> str:
         """Generate a live BOM summary with unit and extended pricing."""
         if quantity < 1:
@@ -533,6 +549,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def lib_check_stock_availability(refs: list[str], source: str = "jlcsearch") -> str:
         """Check live stock availability for the requested schematic references."""
         wanted = {ref.strip().upper() for ref in refs if ref.strip()}
@@ -566,6 +583,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def lib_find_alternative_parts(
         lcsc_code: str,
         tolerance_percent: float = 10.0,

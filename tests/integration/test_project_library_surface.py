@@ -74,6 +74,9 @@ async def test_project_resources_prompts_and_library_surface(
     assert f"v{__version__}" in version
     assert "Quick Start" in help_text
     assert "pcb_read" in categories
+    assert "schematic_only" in categories
+    assert "pcb_only" in categories
+    assert "analysis" in categories
     assert "kicad_get_version" in category_tools
     assert "pcb_auto_place_by_schematic" in pcb_write_tools
     assert "pcb_set_stackup" in pcb_write_tools
@@ -83,12 +86,13 @@ async def test_project_resources_prompts_and_library_surface(
     assert "pcb_add_teardrops" in pcb_write_tools
     assert "pcb_get_impedance_for_trace" in pcb_read_tools
     assert "pcb_check_creepage_clearance" in pcb_read_tools
-    assert "lib_search_components" in library_tools
+    assert "lib_search_components [HEADLESS]" in library_tools
     assert "lib_get_component_details" in library_tools
     assert "lib_get_bom_with_pricing" in library_tools
-    assert "route_autoroute_freerouting" in routing_tools
+    assert "route_autoroute_freerouting [HEADLESS / REQUIRES:freerouting]" in routing_tools
     assert "route_differential_pair" in routing_tools
-    assert "tune_track_length [DEPRECATED]" in routing_tools
+    assert "tune_track_length [DEPRECATED" in routing_tools
+    assert "pcb_get_tracks [REQUIRES_KICAD]" in pcb_read_tools
     assert "sim_run_operating_point" in simulation_tools
     assert "sim_check_stability" in simulation_tools
     assert "si_calculate_trace_impedance" in si_tools
@@ -99,7 +103,7 @@ async def test_project_resources_prompts_and_library_surface(
     assert "emc_run_full_compliance" in emc_tools
     assert "dfm_load_manufacturer_profile" in dfm_tools
     assert "dfm_run_manufacturer_check" in dfm_tools
-    assert "vcs_init_git" in vcs_tools
+    assert "vcs_init_git [HEADLESS]" in vcs_tools
     assert "vcs_restore_checkpoint" in vcs_tools
 
     created = await call_tool_text(

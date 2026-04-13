@@ -439,6 +439,46 @@ async def test_pcb_and_routing_surface(
 
 
 @pytest.mark.anyio
+async def test_pcb_read_pagination_and_filters(
+    sample_project: Path,
+    mock_board,
+) -> None:
+    _configure_mock_board(mock_board)
+    server = build_server("pcb")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+
+    page_two = await call_tool_text(
+        server,
+        "pcb_get_tracks",
+        {"page": 2, "page_size": 2},
+    )
+    usb_dp_only = await call_tool_text(
+        server,
+        "pcb_get_tracks",
+        {"filter_net": "USB_DP"},
+    )
+    back_footprints = await call_tool_text(
+        server,
+        "pcb_get_footprints",
+        {"filter_layer": "B_Cu"},
+    )
+
+    assert "Tracks (3 total)" in page_two
+    assert "Page 2/2" in page_two
+    assert "USB_DN" in page_two
+    assert "track-12345678" not in page_two
+
+    assert "Tracks (1 total)" in usb_dp_only
+    assert "USB_DP" in usb_dp_only
+    assert "USB_DN" not in usb_dp_only
+    assert "NET1" not in usb_dp_only
+
+    assert "Footprints (1 total)" in back_footprints
+    assert "U2 (MCU)" in back_footprints
+    assert "R1 (10k)" not in back_footprints
+
+
+@pytest.mark.anyio
 async def test_export_and_validation_surface(
     sample_project: Path,
     mock_board,

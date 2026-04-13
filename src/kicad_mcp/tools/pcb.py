@@ -60,6 +60,7 @@ from ..utils.impedance import TraceType, copper_thickness_mm, trace_impedance
 from ..utils.layers import CANONICAL_LAYER_NAMES, resolve_layer, resolve_layer_name
 from ..utils.sexpr import _extract_block, _sexpr_string
 from ..utils.units import _coord_nm, mm_to_nm, nm_to_mm
+from .metadata import headless_compatible, requires_kicad_running
 from .schematic import parse_schematic_file
 
 logger = structlog.get_logger(__name__)
@@ -95,6 +96,37 @@ def _limit[T](items: Iterable[T]) -> tuple[list[T], int]:
     cfg = get_config()
     collected = list(items)
     return collected[: cfg.max_items_per_response], len(collected)
+
+
+def _page_size(requested: int) -> int:
+    if requested < 1:
+        raise ValueError("page_size must be at least 1.")
+    return min(requested, get_config().max_items_per_response)
+
+
+def _paginate[T](items: Iterable[T], *, page: int, page_size: int) -> tuple[list[T], int, int]:
+    if page < 1:
+        raise ValueError("page must be at least 1.")
+    normalized_page_size = _page_size(page_size)
+    collected = list(items)
+    total = len(collected)
+    if total == 0:
+        return [], 0, 0
+    page_count = max(math.ceil(total / normalized_page_size), 1)
+    if page > page_count:
+        return [], total, page_count
+    start = (page - 1) * normalized_page_size
+    stop = start + normalized_page_size
+    return collected[start:stop], total, page_count
+
+
+def _matches_layer_filter(layer: int, filter_layer: str) -> bool:
+    if not filter_layer:
+        return True
+    board_layer_name = BoardLayer.Name(layer)
+    if board_layer_name.startswith("BL_"):
+        board_layer_name = board_layer_name[3:]
+    return resolve_layer_name(filter_layer) == resolve_layer_name(board_layer_name)
 
 
 def _find_net(name: str) -> Net:
@@ -1308,6 +1340,7 @@ def register(mcp: FastMCP) -> None:
     """Register PCB tools."""
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_get_board_summary() -> str:
         """Summarize the current board."""
         board = get_board()
@@ -1330,13 +1363,29 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
-    def pcb_get_tracks() -> str:
+    @requires_kicad_running
+    def pcb_get_tracks(
+        page: int = 1,
+        page_size: int = 100,
+        filter_layer: str = "",
+        filter_net: str = "",
+    ) -> str:
         """List board tracks."""
-        tracks, total = _limit(cast(Iterable[Track], get_board().get_tracks()))
-        if not tracks:
+        all_tracks = [
+            track
+            for track in cast(Iterable[Track], get_board().get_tracks())
+            if _matches_layer_filter(track.layer, filter_layer)
+            and (not filter_net or (track.net.name or "").casefold() == filter_net.casefold())
+        ]
+        tracks, total, page_count = _paginate(all_tracks, page=page, page_size=page_size)
+        if total == 0:
+            if filter_layer or filter_net:
+                return "No tracks match the supplied filters on the active board."
             return "No tracks are present on the active board."
+        if not tracks:
+            return f"Track page {page} is out of range. Available pages: 1-{page_count}."
 
-        lines = [f"Tracks ({total} total):"]
+        lines = [f"Tracks ({total} total):", f"- Page {page}/{page_count} | Showing {len(tracks)}"]
         for index, track in enumerate(tracks, start=1):
             lines.append(
                 f"{index}. "
@@ -1351,6 +1400,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_get_vias() -> str:
         """List board vias."""
         vias, total = _limit(cast(Iterable[Via], get_board().get_vias()))
@@ -1370,13 +1420,30 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    def pcb_get_footprints() -> str:
+    @requires_kicad_running
+    def pcb_get_footprints(
+        page: int = 1,
+        page_size: int = 50,
+        filter_layer: str = "",
+    ) -> str:
         """List board footprints."""
-        footprints, total = _limit(cast(Iterable[_FootprintLike], get_board().get_footprints()))
-        if not footprints:
+        all_footprints = [
+            footprint
+            for footprint in cast(Iterable[_FootprintLike], get_board().get_footprints())
+            if _matches_layer_filter(footprint.layer, filter_layer)
+        ]
+        footprints, total, page_count = _paginate(all_footprints, page=page, page_size=page_size)
+        if total == 0:
+            if filter_layer:
+                return "No footprints match the supplied layer filter on the active board."
             return "No footprints are present on the active board."
+        if not footprints:
+            return f"Footprint page {page} is out of range. Available pages: 1-{page_count}."
 
-        lines = [f"Footprints ({total} total):"]
+        lines = [
+            f"Footprints ({total} total):",
+            f"- Page {page}/{page_count} | Showing {len(footprints)}",
+        ]
         for footprint in footprints:
             lines.append(
                 f"- {footprint.reference_field.text.value} "
@@ -1389,6 +1456,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_get_nets() -> str:
         """List all board nets."""
         nets, total = _limit(cast(Iterable[Net], get_board().get_nets(netclass_filter=None)))
@@ -1399,6 +1467,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_get_zones() -> str:
         """List all board copper zones."""
         zones, total = _limit(cast(Iterable[Any], get_board().get_zones()))
@@ -1416,6 +1485,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_get_shapes() -> str:
         """List graphical board shapes."""
         shapes, total = _limit(cast(Iterable[Any], get_board().get_shapes()))
@@ -1428,6 +1498,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_get_pads() -> str:
         """List board pads."""
         pads, total = _limit(cast(Iterable[_PadLike], get_board().get_pads()))
@@ -1444,6 +1515,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_get_layers() -> str:
         """List enabled board layers."""
         layers = get_board().get_enabled_layers()
@@ -1451,6 +1523,7 @@ def register(mcp: FastMCP) -> None:
         return "Enabled layers:\n" + "\n".join(f"- {name}" for name in names)
 
     @mcp.tool()
+    @headless_compatible
     def pcb_get_stackup() -> str:
         """Show the current stackup."""
         try:
@@ -1474,6 +1547,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def pcb_set_stackup(layers: list[dict[str, object]]) -> str:
         """Set the active board stackup using a file-backed profile."""
         payload = SetStackupInput.model_validate({"layers": layers})
@@ -1495,6 +1569,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def pcb_get_impedance_for_trace(width_mm: float, layer_name: str) -> str:
         """Estimate trace impedance for the supplied width on the named stackup layer."""
         payload = ImpedanceForTraceInput(width_mm=width_mm, layer_name=layer_name)
@@ -1524,6 +1599,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def pcb_check_creepage_clearance(
         voltage_v: float,
         pollution_degree: int = 2,
@@ -1659,6 +1735,7 @@ def register(mcp: FastMCP) -> None:
         return content
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_add_track(
         x1_mm: float,
         y1_mm: float,
@@ -1708,6 +1785,7 @@ def register(mcp: FastMCP) -> None:
         return f"Added {len(created)} tracks."
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_add_via(
         x_mm: float,
         y_mm: float,
@@ -2024,6 +2102,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_move_footprint(
         reference: str, x_mm: float, y_mm: float, rotation_deg: float = 0.0
     ) -> str:
@@ -2048,6 +2127,7 @@ def register(mcp: FastMCP) -> None:
         return f"Moved footprint '{reference}' to ({x_mm}, {y_mm}) mm."
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_set_footprint_layer(reference: str, layer: str) -> str:
         """Set the footprint copper side."""
         footprint = _find_footprint_by_reference(reference)
@@ -2059,6 +2139,7 @@ def register(mcp: FastMCP) -> None:
         return f"Updated footprint '{reference}' to layer '{layer}'."
 
     @mcp.tool()
+    @headless_compatible
     def pcb_sync_from_schematic(
         origin_x_mm: float = 20.0,
         origin_y_mm: float = 20.0,
@@ -2243,6 +2324,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def pcb_auto_place_by_schematic(
         strategy: str = "cluster",
         origin_x_mm: float = 20.0,
@@ -2336,6 +2418,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def pcb_place_decoupling_caps(
         ic_ref: str,
         cap_refs: list[str],
@@ -2432,6 +2515,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def pcb_group_by_function(
         groups: dict[str, list[str]],
         origin_x_mm: float = 20.0,
@@ -2519,6 +2603,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def pcb_align_footprints(
         refs: list[str],
         axis: str = "x",
@@ -2577,6 +2662,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_set_keepout_zone(
         x_mm: float,
         y_mm: float,
@@ -2621,6 +2707,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def pcb_add_mounting_holes(
         diameter_mm: float = 3.2,
         clearance_mm: float = 6.35,
@@ -2689,6 +2776,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def pcb_add_fiducial_marks(
         count: int = 3,
         diameter_mm: float = 1.0,
@@ -2736,6 +2824,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @requires_kicad_running
     def pcb_add_teardrops(
         net_classes: list[str] | None = None,
         length_ratio: float = 1.4,

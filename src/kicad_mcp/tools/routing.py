@@ -21,6 +21,7 @@ from ..utils.layers import resolve_layer
 from ..utils.sexpr import _extract_block, _sexpr_string
 from ..utils.units import _coord_nm, mm_to_nm, nm_to_mm
 from .export import _get_pcb_file
+from .metadata import headless_compatible, requires_dependency, requires_kicad_running
 
 logger = structlog.get_logger(__name__)
 
@@ -276,6 +277,7 @@ def register(mcp: FastMCP) -> None:
     """Register routing tools."""
 
     @mcp.tool()
+    @requires_kicad_running
     def route_single_track(
         x1_mm: float,
         y1_mm: float,
@@ -309,6 +311,7 @@ def register(mcp: FastMCP) -> None:
         return "Single track routed successfully."
 
     @mcp.tool()
+    @requires_kicad_running
     def route_from_pad_to_pad(
         ref1: str,
         pad1: str,
@@ -368,6 +371,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def route_export_dsn(output_path: str = "output/routing/board.dsn") -> str:
         """Stage a Specctra DSN file for FreeRouting."""
         runner = FreeRoutingRunner()
@@ -382,6 +386,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def route_import_ses(ses_path: str = "output/routing/board.ses") -> str:
         """Stage a Specctra SES file and explain the KiCad import step."""
         runner = FreeRoutingRunner()
@@ -397,6 +402,8 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
+    @requires_dependency("freerouting")
     def route_autoroute_freerouting(
         dsn_path: str = "output/routing/board.dsn",
         ses_path: str = "output/routing/board.ses",
@@ -449,6 +456,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def route_set_net_class_rules(
         net_class: str,
         width_mm: float,
@@ -475,6 +483,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def route_differential_pair(
         net_p: str,
         net_n: str,
@@ -510,6 +519,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def route_tune_length(
         net_name: str,
         target_mm: float,
@@ -542,12 +552,14 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def tune_track_length(net_name: str, target_length_mm: float) -> str:
         """Backward-compatible alias for route_tune_length()."""
         logger.warning("deprecated_tune_track_length", replacement="route_tune_length")
         return str(route_tune_length(net_name, target_length_mm))
 
     @mcp.tool()
+    @headless_compatible
     def tune_diff_pair_length(net_name_p: str, net_name_n: str, target_length_mm: float) -> str:
         """Write matched-length rules for both nets in a differential pair."""
         board_nets = _list_board_net_names()

@@ -25,7 +25,7 @@ Primary CI/CD and release automation runs in Azure DevOps. GitHub Actions in thi
 - EMC tools for plane coverage, return-path review, via stitching, diff-pair symmetry, and bundled compliance sweeps.
 - Simulation tools for SPICE operating-point, AC, transient, DC sweep, and loop-stability checks.
 - MCP resources for live board/project state and prompts for first-board, schematic-to-PCB, and manufacturing workflows.
-- Server profiles (`full`, `minimal`, `pcb`, `schematic`, `manufacturing`) to reduce tool surface for clients.
+- Server profiles (`full`, `minimal`, `schematic_only`, `pcb_only`, `manufacturing`, `high_speed`, `power`, `simulation`, `analysis`) to reduce tool surface for clients. Legacy `pcb` and `schematic` aliases remain available.
 
 ## Quick Start
 
@@ -63,7 +63,7 @@ Add this to `.vscode/mcp.json`:
       "args": ["kicad-mcp-pro"],
       "env": {
         "KICAD_MCP_PROJECT_DIR": "/absolute/path/to/your/kicad-project",
-        "KICAD_MCP_PROFILE": "pcb"
+        "KICAD_MCP_PROFILE": "pcb_only"
       }
     }
   }
@@ -86,7 +86,7 @@ tool_timeout_sec = 120
 
 [mcp_servers.kicad.env]
 KICAD_MCP_PROJECT_DIR = "/absolute/path/to/your/kicad-project"
-KICAD_MCP_PROFILE = "pcb"
+KICAD_MCP_PROFILE = "pcb_only"
 ```
 
 ### Claude Desktop Configuration
@@ -118,7 +118,7 @@ Add a custom MCP server using `uvx` as the command and `kicad-mcp-pro` as the on
 
 ### Claude Code
 
-Launch the server with `uvx kicad-mcp-pro`, then attach it from your MCP config. The `minimal` profile is a good default when you mainly want read/export workflows.
+Launch the server with `uvx kicad-mcp-pro`, then attach it from your MCP config. The `minimal` profile is a good default when you mainly want read/export workflows, while `pcb_only` and `analysis` are good focused options for board-heavy sessions.
 
 ### More Clients
 
@@ -132,6 +132,8 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 - Python 3.12+.
 - For live IPC tools, KiCad must be running with the IPC API available.
 - For HTTP transport, install the `http` extra: `pip install "kicad-mcp-pro[http]"`.
+- For FreeRouting orchestration helpers, install the `freerouting` extra:
+  `pip install "kicad-mcp-pro[freerouting]"`.
 - For SPICE simulation tools, install the `simulation` extra:
   `pip install "kicad-mcp-pro[simulation]"`.
 - For Git checkpoint tools, install the `vcs` extra:
@@ -173,6 +175,10 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 | `KICAD_MCP_MAX_ITEMS_PER_RESPONSE`    | Max list items returned                      | `200`              |
 | `KICAD_MCP_MAX_TEXT_RESPONSE_CHARS`   | Max text payload length                      | `50000`            |
 
+Preferred profile names are `full`, `minimal`, `schematic_only`, `pcb_only`,
+`manufacturing`, `high_speed`, `power`, `simulation`, and `analysis`. Legacy
+aliases `pcb` and `schematic` still work for older clients.
+
 ## Tool Reference
 
 ### Project Management
@@ -190,9 +196,9 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 ### PCB
 
 - `pcb_get_board_summary`
-- `pcb_get_tracks`
+- `pcb_get_tracks` (`page`, `page_size`, `filter_layer`, `filter_net`)
 - `pcb_get_vias`
-- `pcb_get_footprints`
+- `pcb_get_footprints` (`page`, `page_size`, `filter_layer`)
 - `pcb_get_nets`
 - `pcb_get_zones`
 - `pcb_get_shapes`
@@ -239,9 +245,14 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 - `sch_get_wires`
 - `sch_get_labels`
 - `sch_get_net_names`
+- `sch_create_sheet`
+- `sch_list_sheets`
+- `sch_get_sheet_info`
 - `sch_add_symbol`
 - `sch_add_wire`
 - `sch_add_label`
+- `sch_add_global_label`
+- `sch_add_hierarchical_label`
 - `sch_add_power_symbol`
 - `sch_add_bus`
 - `sch_add_bus_wire_entry`
@@ -249,6 +260,10 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 - `sch_update_properties`
 - `sch_build_circuit`
 - `sch_get_pin_positions`
+- `sch_route_wire_between_pins`
+- `sch_get_connectivity_graph`
+- `sch_trace_net`
+- `sch_auto_place_symbols`
 - `sch_check_power_flags`
 - `sch_annotate`
 - `sch_reload`

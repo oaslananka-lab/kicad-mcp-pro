@@ -9,6 +9,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 from ..config import get_config
+from .metadata import headless_compatible
 from .validation import _entries, _run_drc_report
 
 _CHECKPOINT_TRAILER = "KiCad-MCP-Checkpoint: true"
@@ -157,6 +158,7 @@ def register(mcp: FastMCP) -> None:
     """Register version-control tools."""
 
     @mcp.tool()
+    @headless_compatible
     def vcs_init_git(project_dir: str) -> str:
         """Initialize a Git repository for the KiCad project directory."""
         target_dir = _resolve_project_dir(project_dir)
@@ -184,6 +186,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def vcs_commit_checkpoint(message: str, auto_drc: bool = True) -> str:
         """Commit the current project state as a named checkpoint."""
         if not message.strip():
@@ -218,6 +221,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def vcs_list_checkpoints() -> str:
         """List checkpoint commits created by the MCP tool."""
         project_dir = _resolve_project_dir()
@@ -239,6 +243,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def vcs_restore_checkpoint(commit_hash: str) -> str:
         """Restore project files from a previous checkpoint commit."""
         if not commit_hash.strip():
@@ -272,6 +277,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def vcs_diff_with_checkpoint(commit_hash: str) -> str:
         """Show the current project diff versus a checkpoint commit."""
         if not commit_hash.strip():

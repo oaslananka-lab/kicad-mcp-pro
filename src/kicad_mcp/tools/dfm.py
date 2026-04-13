@@ -17,6 +17,7 @@ from ..connection import KiCadConnectionError, get_board
 from ..utils.sexpr import _extract_block
 from ..utils.units import nm_to_mm
 from .export import _ensure_output_dir, _get_pcb_file, _run_cli_variants
+from .metadata import headless_compatible
 
 logger = structlog.get_logger(__name__)
 DEFAULT_PROFILE = ("JLCPCB", "standard")
@@ -379,6 +380,7 @@ def register(mcp: FastMCP) -> None:
     """Register DFM tools."""
 
     @mcp.tool()
+    @headless_compatible
     def dfm_load_manufacturer_profile(
         manufacturer: str = "JLCPCB",
         tier: str = "standard",
@@ -398,12 +400,14 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def dfm_run_manufacturer_check() -> str:
         """Run a manufacturer-aware DFM review using the active bundled profile."""
         profile = _selected_profile()
         return "\n".join(_dfm_check_lines(profile))
 
     @mcp.tool()
+    @headless_compatible
     def dfm_calculate_manufacturing_cost(
         quantity: int = 10,
         manufacturer: str = "JLCPCB",

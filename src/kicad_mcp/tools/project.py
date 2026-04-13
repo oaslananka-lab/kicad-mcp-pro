@@ -14,7 +14,8 @@ from .. import __version__
 from ..config import get_config
 from ..connection import KiCadConnectionError, get_kicad, reset_connection
 from ..discovery import find_kicad_version, find_recent_projects, scan_project_dir
-from .router import TOOL_CATEGORIES
+from .metadata import headless_compatible
+from .router import TOOL_CATEGORIES, available_profiles
 
 logger = structlog.get_logger(__name__)
 
@@ -61,6 +62,7 @@ def register(mcp: FastMCP) -> None:
     """Register project management tools."""
 
     @mcp.tool()
+    @headless_compatible
     def kicad_set_project(
         project_dir: str,
         pcb_file: str = "",
@@ -92,11 +94,13 @@ def register(mcp: FastMCP) -> None:
         return _render_project_info()
 
     @mcp.tool()
+    @headless_compatible
     def kicad_get_project_info() -> str:
         """Show the currently configured KiCad project paths."""
         return _render_project_info()
 
     @mcp.tool()
+    @headless_compatible
     def kicad_list_recent_projects() -> str:
         """List recently opened KiCad projects from KiCad's config files."""
         projects = find_recent_projects()
@@ -111,6 +115,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def kicad_scan_directory(path: str) -> str:
         """Scan a directory and report any KiCad project files it contains."""
         payload = ScanDirectoryInput(path=path)
@@ -126,6 +131,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def kicad_create_new_project(path: str, name: str) -> str:
         """Create a new minimal KiCad project structure and activate it."""
         payload = CreateProjectInput(path=path, name=name)
@@ -182,6 +188,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    @headless_compatible
     def kicad_get_version() -> str:
         """Get KiCad version information and current connection status."""
         cfg = get_config()
@@ -210,6 +217,7 @@ def register(mcp: FastMCP) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @headless_compatible
     def kicad_help() -> str:
         """Show a concise startup guide and all tool categories."""
         lines = [
@@ -224,4 +232,7 @@ def register(mcp: FastMCP) -> None:
         ]
         for category, info in TOOL_CATEGORIES.items():
             lines.append(f"- `{category}`: {info['description']}")
+        lines.append("")
+        lines.append("Profiles:")
+        lines.extend(f"- `{profile}`" for profile in available_profiles())
         return "\n".join(lines)

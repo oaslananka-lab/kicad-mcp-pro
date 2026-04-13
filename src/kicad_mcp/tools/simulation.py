@@ -18,6 +18,7 @@ from ..models.simulation import (
 )
 from ..utils.ngspice import NgspiceRunner, SimulationResult, prepare_spice_netlist
 from .export import _ensure_output_dir, _get_sch_file, _run_cli_variants
+from .metadata import headless_compatible
 
 DIRECTIVE_FILENAME = ".kicad_mcp_spice_directives.cir"
 
@@ -232,6 +233,7 @@ def register(mcp: FastMCP) -> None:
     """Register simulation tools."""
 
     @mcp.tool()
+    @headless_compatible
     def sim_add_spice_directive(directive: str) -> str:
         """Persist a SPICE directive used by future MCP simulation runs."""
         payload = SpiceDirectiveInput(directive=directive)
@@ -240,6 +242,7 @@ def register(mcp: FastMCP) -> None:
         return f"Stored simulation directive in {path} ({count} total directive(s))."
 
     @mcp.tool()
+    @headless_compatible
     def sim_run_operating_point(netlist_path: str = "", probe_nets: list[str] | None = None) -> str:
         """Run a DC operating-point analysis."""
         payload = OperatingPointInput(netlist_path=netlist_path, probe_nets=probe_nets or [])
@@ -252,6 +255,7 @@ def register(mcp: FastMCP) -> None:
         return _format_operating_point(result)
 
     @mcp.tool()
+    @headless_compatible
     def sim_run_ac_analysis(
         start_freq_hz: float,
         stop_freq_hz: float,
@@ -279,6 +283,7 @@ def register(mcp: FastMCP) -> None:
         return _format_series_result("AC analysis", result)
 
     @mcp.tool()
+    @headless_compatible
     def sim_run_transient(
         stop_time_s: float,
         step_time_s: float,
@@ -303,6 +308,7 @@ def register(mcp: FastMCP) -> None:
         return _format_series_result("Transient analysis", result)
 
     @mcp.tool()
+    @headless_compatible
     def sim_run_dc_sweep(
         source_ref: str,
         start_v: float,
@@ -333,6 +339,7 @@ def register(mcp: FastMCP) -> None:
         return _format_series_result("DC sweep analysis", result)
 
     @mcp.tool()
+    @headless_compatible
     def sim_check_stability(
         output_net: str,
         feedback_net: str,

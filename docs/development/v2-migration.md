@@ -153,3 +153,32 @@ v2 adds a Git-backed checkpoint surface:
 The restore path is intentionally conservative: when the project is dirty, the
 tool first creates a stash backup for the project scope and only then restores
 files from the requested checkpoint commit.
+
+## Profiles And Tool Metadata
+
+v2 broadens the recommended server profiles:
+
+- `full`
+- `minimal`
+- `schematic_only`
+- `pcb_only`
+- `manufacturing`
+- `high_speed`
+- `power`
+- `simulation`
+- `analysis`
+
+Legacy aliases `pcb` and `schematic` still resolve for older clients, but new
+config examples should prefer the explicit `*_only` profile names.
+
+The tool discovery layer also adds runtime metadata labels in
+`kicad_get_tools_in_category()`:
+
+- `HEADLESS` for file/CLI-backed tools that do not need a live KiCad session
+- `REQUIRES_KICAD` for IPC-backed tools that need the PCB editor running
+- `REQUIRES:<name>` for optional dependency families such as `freerouting`
+
+Large PCB read tools now support pagination/filtering:
+
+- `pcb_get_tracks(page=1, page_size=100, filter_layer="", filter_net="")`
+- `pcb_get_footprints(page=1, page_size=50, filter_layer="")`

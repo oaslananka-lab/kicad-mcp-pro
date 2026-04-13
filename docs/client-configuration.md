@@ -20,12 +20,13 @@ Recommended environment:
 
 ```text
 KICAD_MCP_PROJECT_DIR=/absolute/path/to/your/kicad-project
-KICAD_MCP_PROFILE=pcb
+KICAD_MCP_PROFILE=pcb_only
 ```
 
-Use `KICAD_MCP_PROFILE=full` if you want every tool category. Use `minimal`, `pcb`,
-`schematic`, or `manufacturing` to reduce the tool surface for clients with tight context
-budgets.
+Use `KICAD_MCP_PROFILE=full` if you want every tool category. Preferred focused profiles are
+`minimal`, `pcb_only`, `schematic_only`, `manufacturing`, `high_speed`, `power`,
+`simulation`, and `analysis`. Legacy aliases `pcb` and `schematic` still work for older
+client configs.
 
 ## VS Code And GitHub Copilot
 
@@ -43,7 +44,7 @@ configuration for global setup. GitHub Copilot in VS Code uses the same MCP serv
       "args": ["kicad-mcp-pro"],
       "env": {
         "KICAD_MCP_PROJECT_DIR": "/absolute/path/to/your/kicad-project",
-        "KICAD_MCP_PROFILE": "pcb"
+        "KICAD_MCP_PROFILE": "pcb_only"
       }
     }
   }
@@ -63,7 +64,7 @@ CLI setup:
 ```bash
 codex mcp add kicad \
   --env KICAD_MCP_PROJECT_DIR=/absolute/path/to/your/kicad-project \
-  --env KICAD_MCP_PROFILE=pcb \
+  --env KICAD_MCP_PROFILE=pcb_only \
   -- uvx kicad-mcp-pro
 ```
 
@@ -78,7 +79,7 @@ tool_timeout_sec = 120
 
 [mcp_servers.kicad.env]
 KICAD_MCP_PROJECT_DIR = "/absolute/path/to/your/kicad-project"
-KICAD_MCP_PROFILE = "pcb"
+KICAD_MCP_PROFILE = "pcb_only"
 ```
 
 ## Claude Desktop
@@ -93,7 +94,7 @@ Add the server to `claude_desktop_config.json`:
       "args": ["kicad-mcp-pro"],
       "env": {
         "KICAD_MCP_PROJECT_DIR": "/absolute/path/to/your/kicad-project",
-        "KICAD_MCP_PROFILE": "pcb"
+        "KICAD_MCP_PROFILE": "pcb_only"
       }
     }
   }
@@ -112,7 +113,7 @@ Project-scoped `.mcp.json`:
       "args": ["kicad-mcp-pro"],
       "env": {
         "KICAD_MCP_PROJECT_DIR": "/absolute/path/to/your/kicad-project",
-        "KICAD_MCP_PROFILE": "pcb"
+        "KICAD_MCP_PROFILE": "pcb_only"
       }
     }
   }
@@ -125,7 +126,7 @@ CLI setup:
 claude mcp add kicad \
   --scope project \
   --env KICAD_MCP_PROJECT_DIR=/absolute/path/to/your/kicad-project \
-  --env KICAD_MCP_PROFILE=pcb \
+  --env KICAD_MCP_PROFILE=pcb_only \
   -- uvx kicad-mcp-pro
 ```
 
@@ -143,7 +144,7 @@ configuration:
       "args": ["kicad-mcp-pro"],
       "env": {
         "KICAD_MCP_PROJECT_DIR": "/absolute/path/to/your/kicad-project",
-        "KICAD_MCP_PROFILE": "pcb"
+        "KICAD_MCP_PROFILE": "pcb_only"
       }
     }
   }
@@ -162,7 +163,7 @@ Add the server to `~/.gemini/settings.json`:
       "args": ["kicad-mcp-pro"],
       "env": {
         "KICAD_MCP_PROJECT_DIR": "/absolute/path/to/your/kicad-project",
-        "KICAD_MCP_PROFILE": "pcb"
+        "KICAD_MCP_PROFILE": "pcb_only"
       },
       "timeout": 120000
     }
@@ -183,7 +184,7 @@ If your client accepts the common `mcpServers` JSON shape, use this as the start
       "args": ["kicad-mcp-pro"],
       "env": {
         "KICAD_MCP_PROJECT_DIR": "/absolute/path/to/your/kicad-project",
-        "KICAD_MCP_PROFILE": "pcb"
+        "KICAD_MCP_PROFILE": "pcb_only"
       }
     }
   }

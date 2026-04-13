@@ -56,7 +56,19 @@ class KiCadMCPConfig(BaseSettings):
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=3334)
     mount_path: str = Field(default="/mcp")
-    profile: Literal["full", "minimal", "pcb", "schematic", "manufacturing"] = Field(default="full")
+    profile: Literal[
+        "full",
+        "minimal",
+        "schematic_only",
+        "pcb_only",
+        "manufacturing",
+        "high_speed",
+        "power",
+        "simulation",
+        "analysis",
+        "pcb",
+        "schematic",
+    ] = Field(default="full")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO")
     log_format: Literal["json", "console"] = Field(default="console")
 
