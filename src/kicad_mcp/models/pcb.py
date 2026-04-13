@@ -242,3 +242,47 @@ class AddTeardropsInput(BaseModel):
     length_ratio: float = Field(default=1.4, ge=0.5, le=4.0)
     width_ratio: float = Field(default=1.2, ge=0.5, le=4.0)
     max_count: int = Field(default=100, ge=1, le=500)
+
+
+class StackupLayerSpec(BaseModel):
+    """Single layer description for file-backed stackup editing."""
+
+    name: str = Field(min_length=1, max_length=50)
+    type: str = Field(default="signal", min_length=1, max_length=50)
+    thickness_mm: float = Field(gt=0.0, le=10.0)
+    material: str = Field(default="Copper", min_length=1, max_length=50)
+    epsilon_r: float | None = Field(default=None, gt=1.0, le=20.0)
+    loss_tangent: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class SetStackupInput(BaseModel):
+    """Stackup programming parameters."""
+
+    layers: list[StackupLayerSpec] = Field(min_length=2, max_length=64)
+
+
+class LayerViaInput(BaseModel):
+    """Blind or microvia creation parameters."""
+
+    x_mm: CoordMM
+    y_mm: CoordMM
+    from_layer: LayerName
+    to_layer: LayerName
+    drill_mm: WidthMM = Field(default=0.2)
+    diameter_mm: WidthMM = Field(default=0.45)
+    net_name: str = Field(default="")
+
+
+class ImpedanceForTraceInput(BaseModel):
+    """Single-ended impedance lookup parameters for an existing stackup."""
+
+    width_mm: WidthMM
+    layer_name: LayerName
+
+
+class CreepageCheckInput(BaseModel):
+    """Creepage review parameters."""
+
+    voltage_v: float = Field(gt=0.0, le=5000.0)
+    pollution_degree: int = Field(default=2, ge=1, le=4)
+    material_group: int = Field(default=3, ge=1, le=4)

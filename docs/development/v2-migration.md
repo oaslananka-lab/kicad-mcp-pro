@@ -123,3 +123,19 @@ These tools sit on top of the existing file-based footprint sync flow. They are
 meant to accelerate initial board bring-up, cluster related references, add
 simple manufacturing markers, and create basic keepout or copper helper shapes
 before a manual refinement pass in the KiCad PCB editor.
+
+## Multilayer / HDI Surface
+
+v2 also expands the PCB surface for multilayer bring-up:
+
+- `pcb_set_stackup`
+- `pcb_add_blind_via`
+- `pcb_add_microvia`
+- `pcb_get_impedance_for_trace`
+- `pcb_check_creepage_clearance`
+
+`pcb_set_stackup` writes a file-backed stackup profile and updates the board
+setup block so later impedance checks can reuse the same dielectric data.
+Blind and microvia helpers stay IPC-backed because they create live board
+items, while the impedance and creepage tools provide fast rule-of-thumb review
+for multilayer layout planning.

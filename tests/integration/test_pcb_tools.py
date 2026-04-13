@@ -4,7 +4,7 @@ import re
 from types import SimpleNamespace
 
 import pytest
-from kipy.proto.board.board_types_pb2 import BoardLayer
+from kipy.proto.board.board_types_pb2 import BoardLayer, ViaType
 from kipy.proto.common import types as common_types
 
 from kicad_mcp.server import build_server
@@ -660,3 +660,157 @@ async def test_pcb_add_teardrops_creates_helper_zones(mock_board) -> None:
     assert "Added 1 teardrop helper zone(s)" in result
     assert len(zones) == 1
     mock_board.refill_zones.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_pcb_set_stackup_persists_file_and_supports_impedance_lookup(
+    sample_project,
+    mock_board,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("kicad_mcp.tools.pcb._board_is_open", lambda: False)
+    server = build_server("pcb")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+
+    configured = await call_tool_text(
+        server,
+        "pcb_set_stackup",
+        {
+            "layers": [
+                {
+                    "name": "F_Cu",
+                    "type": "signal",
+                    "thickness_mm": 0.035,
+                    "material": "Copper",
+                },
+                {
+                    "name": "dielectric_1",
+                    "type": "prepreg",
+                    "thickness_mm": 0.18,
+                    "material": "FR4",
+                    "epsilon_r": 4.2,
+                    "loss_tangent": 0.018,
+                },
+                {
+                    "name": "In1_Cu",
+                    "type": "ground",
+                    "thickness_mm": 0.018,
+                    "material": "Copper",
+                },
+                {
+                    "name": "dielectric_2",
+                    "type": "core",
+                    "thickness_mm": 1.164,
+                    "material": "FR4",
+                    "epsilon_r": 4.2,
+                },
+                {
+                    "name": "B_Cu",
+                    "type": "signal",
+                    "thickness_mm": 0.035,
+                    "material": "Copper",
+                },
+            ]
+        },
+    )
+    stackup = await call_tool_text(server, "pcb_get_stackup", {})
+    impedance = await call_tool_text(
+        server,
+        "pcb_get_impedance_for_trace",
+        {"width_mm": 0.34, "layer_name": "F_Cu"},
+    )
+
+    pcb_text = (sample_project / "demo.kicad_pcb").read_text(encoding="utf-8")
+    state_text = (sample_project / "output" / "stackup_profile.json").read_text(encoding="utf-8")
+
+    assert "Configured stackup with 5 layers." in configured
+    assert "Total thickness: 1.4320 mm" in configured
+    assert "(stackup" in pcb_text
+    assert '(layer "F.Cu" 0' in pcb_text
+    assert "(layer dielectric 1" in pcb_text
+    assert "(epsilon_r 4.2000)" in pcb_text
+    assert '"name": "dielectric_1"' in state_text
+    assert "Board stackup (5 layers)" in stackup
+    assert "dielectric_1" in stackup
+    assert "Trace impedance from current stackup" in impedance
+    assert "Layer: F_Cu" in impedance
+    mock_board.revert.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_pcb_add_blind_and_micro_via_configure_layer_pairs(mock_board) -> None:
+    server = build_server("pcb")
+
+    blind = await call_tool_text(
+        server,
+        "pcb_add_blind_via",
+        {
+            "x_mm": 10.0,
+            "y_mm": 5.0,
+            "from_layer": "F_Cu",
+            "to_layer": "In1_Cu",
+            "net_name": "USB_DP",
+        },
+    )
+    micro = await call_tool_text(
+        server,
+        "pcb_add_microvia",
+        {
+            "x_mm": 12.0,
+            "y_mm": 6.0,
+            "from_layer": "In1_Cu",
+            "to_layer": "In2_Cu",
+            "net_name": "USB_DN",
+        },
+    )
+
+    blind_via = mock_board.create_items.call_args_list[0].args[0][0]
+    micro_via = mock_board.create_items.call_args_list[1].args[0][0]
+
+    assert "Blind or buried via added successfully" in blind
+    assert blind_via.type == ViaType.VT_BLIND_BURIED
+    assert list(blind_via.padstack.layers) == [BoardLayer.BL_F_Cu, BoardLayer.BL_In1_Cu]
+    assert blind_via.padstack.drill.start_layer == BoardLayer.BL_F_Cu
+    assert blind_via.padstack.drill.end_layer == BoardLayer.BL_In1_Cu
+
+    assert "Microvia added successfully" in micro
+    assert micro_via.type == ViaType.VT_MICRO
+    assert list(micro_via.padstack.layers) == [BoardLayer.BL_In1_Cu, BoardLayer.BL_In2_Cu]
+    assert micro_via.padstack.drill.start_layer == BoardLayer.BL_In1_Cu
+    assert micro_via.padstack.drill.end_layer == BoardLayer.BL_In2_Cu
+
+
+@pytest.mark.anyio
+async def test_pcb_check_creepage_clearance_reports_worst_pad_pair(mock_board) -> None:
+    mock_board.get_pads.return_value = [
+        SimpleNamespace(
+            parent=SimpleNamespace(
+                reference_field=SimpleNamespace(text=SimpleNamespace(value="J1"))
+            ),
+            number="1",
+            position=SimpleNamespace(x_nm=0, y_nm=0),
+            size=SimpleNamespace(x_nm=1_000_000, y_nm=1_000_000),
+            net=SimpleNamespace(name="VIN"),
+        ),
+        SimpleNamespace(
+            parent=SimpleNamespace(
+                reference_field=SimpleNamespace(text=SimpleNamespace(value="J1"))
+            ),
+            number="2",
+            position=SimpleNamespace(x_nm=2_200_000, y_nm=0),
+            size=SimpleNamespace(x_nm=1_000_000, y_nm=1_000_000),
+            net=SimpleNamespace(name="GND"),
+        ),
+    ]
+    server = build_server("pcb")
+
+    creepage = await call_tool_text(
+        server,
+        "pcb_check_creepage_clearance",
+        {"voltage_v": 120.0, "pollution_degree": 2, "material_group": 3},
+    )
+
+    assert "Creepage clearance review (WARN)" in creepage
+    assert "Worst pad pair: J1.1 (VIN) vs J1.2 (GND)" in creepage
+    assert "Estimated edge-to-edge clearance: 1.200 mm" in creepage
+    assert "Required creepage" in creepage

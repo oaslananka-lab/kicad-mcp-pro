@@ -201,6 +201,8 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 - `pcb_get_board_as_string`
 - `pcb_get_ratsnest`
 - `pcb_get_design_rules`
+- `pcb_get_impedance_for_trace`
+- `pcb_check_creepage_clearance`
 - `pcb_add_track`
 - `pcb_add_tracks_bulk`
 - `pcb_add_via`
@@ -209,6 +211,9 @@ HTTP transports are available in [Client Configuration](docs/client-configuratio
 - `pcb_add_rectangle`
 - `pcb_add_text`
 - `pcb_set_board_outline`
+- `pcb_set_stackup`
+- `pcb_add_blind_via`
+- `pcb_add_microvia`
 - `pcb_auto_place_by_schematic`
 - `pcb_place_decoupling_caps`
 - `pcb_group_by_function`
@@ -268,6 +273,13 @@ help refine the initial placement without opening the PCB editor. `pcb_add_mount
 and `pcb_add_fiducial_marks` append simple manufacturing footprints, `pcb_set_keepout_zone`
 creates a real rule-area keepout on the active board, and `pcb_add_teardrops` adds
 small copper helper zones at basic pad-to-track junctions when the board is open over IPC.
+For multilayer bring-up, `pcb_set_stackup` stores a file-backed stackup profile and updates
+the board setup block so later tools can reuse the same dielectric assumptions.
+`pcb_get_impedance_for_trace` reads that active stackup and estimates impedance for a given
+trace width on a selected copper layer, while `pcb_check_creepage_clearance` performs a
+heuristic pad-to-pad creepage review against voltage, pollution degree, and material group.
+`pcb_add_blind_via` and `pcb_add_microvia` use KiCad IPC to create layer-pair vias with
+explicit start and end copper layers.
 
 ### Library
 

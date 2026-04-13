@@ -61,6 +61,8 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "pcb_get_board_as_string",
             "pcb_get_ratsnest",
             "pcb_get_design_rules",
+            "pcb_get_impedance_for_trace",
+            "pcb_check_creepage_clearance",
         ],
     },
     "pcb_write": {
@@ -74,6 +76,9 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "pcb_add_rectangle",
             "pcb_add_text",
             "pcb_set_board_outline",
+            "pcb_set_stackup",
+            "pcb_add_blind_via",
+            "pcb_add_microvia",
             "pcb_auto_place_by_schematic",
             "pcb_place_decoupling_caps",
             "pcb_group_by_function",

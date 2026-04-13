@@ -1,7 +1,17 @@
 """Typed models used by tool modules."""
 
 from .export import ExportBOMInput, ExportGerberInput
-from .pcb import AddCircleInput, AddRectangleInput, AddTrackInput, AddViaInput
+from .pcb import (
+    AddCircleInput,
+    AddRectangleInput,
+    AddTrackInput,
+    AddViaInput,
+    CreepageCheckInput,
+    ImpedanceForTraceInput,
+    LayerViaInput,
+    SetStackupInput,
+    StackupLayerSpec,
+)
 from .power_integrity import (
     CopperWeightCheckInput,
     DecouplingRecommendationInput,
@@ -27,14 +37,19 @@ __all__ = [
     "AddViaInput",
     "AddWireInput",
     "CopperWeightCheckInput",
+    "CreepageCheckInput",
     "DecouplingRecommendationInput",
     "DCSweepInput",
     "DifferentialPairSkewInput",
     "ExportBOMInput",
     "ExportGerberInput",
+    "ImpedanceForTraceInput",
+    "LayerViaInput",
     "LengthMatchingInput",
     "OperatingPointInput",
+    "SetStackupInput",
     "StackupInput",
+    "StackupLayerSpec",
     "TraceImpedanceInput",
     "TraceWidthForImpedanceInput",
     "TransientAnalysisInput",

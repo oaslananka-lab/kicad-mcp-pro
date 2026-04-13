@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import subprocess
@@ -44,13 +45,19 @@ from ..models.pcb import (
     AlignFootprintsInput,
     AutoPlaceBySchematicInput,
     BulkTrackItem,
+    CreepageCheckInput,
     GroupFootprintsInput,
+    ImpedanceForTraceInput,
     KeepoutZoneInput,
+    LayerViaInput,
     PlaceDecouplingCapsInput,
     SetBoardOutlineInput,
+    SetStackupInput,
+    StackupLayerSpec,
     SyncPcbFromSchematicInput,
 )
-from ..utils.layers import resolve_layer
+from ..utils.impedance import TraceType, copper_thickness_mm, trace_impedance
+from ..utils.layers import CANONICAL_LAYER_NAMES, resolve_layer, resolve_layer_name
 from ..utils.sexpr import _extract_block, _sexpr_string
 from ..utils.units import _coord_nm, mm_to_nm, nm_to_mm
 from .schematic import parse_schematic_file
@@ -60,6 +67,19 @@ BOARD_FILE_VERSION = "20250216"
 STRING_PATTERN = r'"((?:\\.|[^"\\])*)"'
 FLOAT_PATTERN = r"-?\d+(?:\.\d+)?"
 PLACEMENT_MARGIN_MM = 1.27
+STACKUP_STATE_FILE = "stackup_profile.json"
+_COPPER_LAYER_SEQUENCE = [
+    "F_Cu",
+    "In1_Cu",
+    "In2_Cu",
+    "In3_Cu",
+    "In4_Cu",
+    "In5_Cu",
+    "In6_Cu",
+    "In7_Cu",
+    "In8_Cu",
+    "B_Cu",
+]
 
 
 class _ComponentPlacement(Protocol):
@@ -81,6 +101,351 @@ def _find_net(name: str) -> Net:
     net = Net()
     net.name = name
     return net
+
+
+def _board_file_layer_name(layer_name: str) -> str:
+    canonical = resolve_layer_name(layer_name)
+    return canonical.replace("_", ".")
+
+
+def _is_copper_stackup_layer(layer: StackupLayerSpec) -> bool:
+    normalized_name = layer.name.replace(".", "_")
+    material = layer.material.casefold()
+    return (
+        normalized_name in CANONICAL_LAYER_NAMES and normalized_name.endswith("_Cu")
+    ) or (
+        material == "copper"
+    )
+
+
+def _indent_block(block: str, level: int) -> str:
+    prefix = "\t" * level
+    return "\n".join(f"{prefix}{line}" for line in block.strip().splitlines())
+
+
+def _replace_or_append_root_block(content: str, keyword: str, block: str) -> str:
+    normalized = _normalize_board_content(content)
+    replacement = _indent_block(block, 1)
+    match = re.search(rf"(?m)^\s*\({re.escape(keyword)}\b", normalized)
+    if match is None:
+        return _append_board_blocks(normalized, [block])
+    existing, length = _extract_block(normalized, match.start())
+    if not existing:
+        return _append_board_blocks(normalized, [block])
+    return normalized[: match.start()] + replacement + normalized[match.start() + length :]
+
+
+def _replace_or_append_child_block(parent_block: str, keyword: str, child_block: str) -> str:
+    replacement = _indent_block(child_block, 2)
+    match = re.search(rf"(?m)^\s*\({re.escape(keyword)}\b", parent_block)
+    if match is not None:
+        existing, length = _extract_block(parent_block, match.start())
+        if existing:
+            return (
+                parent_block[: match.start()]
+                + replacement
+                + parent_block[match.start() + length :]
+            )
+
+    insert_at = parent_block.rfind(")")
+    if insert_at == -1:
+        raise ValueError("Unable to update the board setup block.")
+    before = parent_block[:insert_at].rstrip()
+    after = parent_block[insert_at:]
+    return f"{before}\n{replacement}\n\t{after.lstrip()}"
+
+
+def _stackup_state_path() -> Path:
+    return get_config().ensure_output_dir() / STACKUP_STATE_FILE
+
+
+def _write_stackup_state(layers: list[StackupLayerSpec]) -> Path:
+    path = _stackup_state_path()
+    path.write_text(
+        json.dumps([layer.model_dump() for layer in layers], indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _load_stackup_state() -> list[StackupLayerSpec] | None:
+    path = _stackup_state_path()
+    if not path.exists():
+        return None
+    payload = cast(list[dict[str, Any]], json.loads(path.read_text(encoding="utf-8")))
+    return [StackupLayerSpec.model_validate(item) for item in payload]
+
+
+def _stackup_specs_from_board() -> list[StackupLayerSpec] | None:
+    if not _board_is_open():
+        return None
+
+    stackup = get_board().get_stackup()
+    specs: list[StackupLayerSpec] = []
+    for index, layer in enumerate(getattr(stackup, "layers", [])):
+        raw_layer = getattr(layer, "layer", "")
+        if isinstance(raw_layer, int):
+            name = BoardLayer.Name(raw_layer).removeprefix("BL_")
+        else:
+            name = str(raw_layer or f"dielectric_{index}")
+        normalized_name = name.replace(".", "_")
+        thickness_nm = int(getattr(layer, "thickness", 0))
+        material = str(getattr(layer, "material_name", "") or "")
+        if not material:
+            material = "Copper" if normalized_name.endswith("_Cu") else "FR4"
+        layer_type = str(getattr(layer, "type_name", "") or getattr(layer, "type", "") or "")
+        if not layer_type:
+            layer_type = "signal" if normalized_name.endswith("_Cu") else "dielectric"
+        spec_kwargs: dict[str, Any] = {
+            "name": normalized_name if normalized_name in CANONICAL_LAYER_NAMES else name,
+            "type": layer_type,
+            "thickness_mm": nm_to_mm(thickness_nm) if thickness_nm else 0.18,
+            "material": material,
+        }
+        epsilon_r = getattr(layer, "epsilon_r", None)
+        if isinstance(epsilon_r, int | float) and epsilon_r != 0:
+            spec_kwargs["epsilon_r"] = float(epsilon_r)
+        loss_tangent = getattr(layer, "loss_tangent", None)
+        if isinstance(loss_tangent, int | float) and loss_tangent != 0:
+            spec_kwargs["loss_tangent"] = float(loss_tangent)
+        specs.append(StackupLayerSpec.model_validate(spec_kwargs))
+    return specs or None
+
+
+def _parse_stackup_specs_from_board_text(content: str) -> list[StackupLayerSpec] | None:
+    match = re.search(r"(?m)^\s*\(setup\b", content)
+    if match is None:
+        return None
+    setup_block, _ = _extract_block(content, match.start())
+    stackup_match = re.search(r"(?m)^\s*\(stackup\b", setup_block)
+    if stackup_match is None:
+        return None
+    stackup_block, _ = _extract_block(setup_block, stackup_match.start())
+    if not stackup_block:
+        return None
+
+    specs: list[StackupLayerSpec] = []
+    cursor = 0
+    while cursor < len(stackup_block):
+        layer_match = re.search(r"(?m)^\s*\(layer\b", stackup_block[cursor:])
+        if layer_match is None:
+            break
+        start = cursor + layer_match.start()
+        layer_block, length = _extract_block(stackup_block, start)
+        if not layer_block:
+            break
+        cursor = start + length
+        stripped = layer_block.lstrip()
+        quoted = re.match(r'\(layer\s+"([^"]+)"\s+(\d+)', stripped)
+        dielectric = re.match(r"\(layer\s+dielectric\s+(\d+)", stripped)
+        if quoted is not None:
+            layer_name = resolve_layer_name(quoted.group(1))
+        elif dielectric is not None:
+            layer_name = f"dielectric_{dielectric.group(1)}"
+        else:
+            continue
+
+        type_match = re.search(r'\(type\s+"([^"]+)"\)', layer_block)
+        thickness_match = re.search(rf"\(thickness\s+({FLOAT_PATTERN})\)", layer_block)
+        if thickness_match is None:
+            continue
+        material_match = re.search(r'\(material\s+"([^"]+)"\)', layer_block)
+        epsilon_match = re.search(rf"\(epsilon_r\s+({FLOAT_PATTERN})\)", layer_block)
+        loss_match = re.search(rf"\(loss_tangent\s+({FLOAT_PATTERN})\)", layer_block)
+        epsilon_text = epsilon_match.group(1) if epsilon_match is not None else None
+        loss_text = loss_match.group(1) if loss_match is not None else None
+
+        specs.append(
+            StackupLayerSpec.model_validate(
+                {
+                    "name": layer_name,
+                    "type": type_match.group(1) if type_match else "signal",
+                    "thickness_mm": float(thickness_match.group(1)),
+                    "material": material_match.group(1) if material_match else "FR4",
+                    "epsilon_r": float(epsilon_text) if epsilon_text is not None else None,
+                    "loss_tangent": float(loss_text) if loss_text is not None else None,
+                }
+            )
+        )
+    return specs or None
+
+
+def _current_stackup_specs() -> list[StackupLayerSpec]:
+    if (board_specs := _stackup_specs_from_board()) is not None:
+        return board_specs
+    if (state_specs := _load_stackup_state()) is not None:
+        return state_specs
+    board_text = _get_pcb_file_for_sync().read_text(encoding="utf-8", errors="ignore")
+    if (parsed_specs := _parse_stackup_specs_from_board_text(board_text)) is not None:
+        return parsed_specs
+    raise ValueError(
+        "No stackup data is available. Configure one with pcb_set_stackup() "
+        "or open the board in KiCad."
+    )
+
+
+def _total_stackup_thickness_mm(layers: list[StackupLayerSpec]) -> float:
+    return round(sum(layer.thickness_mm for layer in layers), 4)
+
+
+def _render_general_block(total_thickness_mm: float) -> str:
+    return (
+        "(general\n"
+        f"\t(thickness {total_thickness_mm:.4f})\n"
+        ")"
+    )
+
+
+def _render_stackup_layer_block(layer: StackupLayerSpec, order: int) -> str:
+    if _is_copper_stackup_layer(layer):
+        header = f'(layer "{_board_file_layer_name(layer.name)}" {order}'
+    else:
+        header = f"(layer dielectric {order}"
+    lines = [
+        header,
+        f'\t(type "{layer.type}")',
+        f"\t(thickness {layer.thickness_mm:.4f})",
+        f'\t(material "{layer.material}")',
+    ]
+    if layer.epsilon_r is not None:
+        lines.append(f"\t(epsilon_r {layer.epsilon_r:.4f})")
+    if layer.loss_tangent is not None:
+        lines.append(f"\t(loss_tangent {layer.loss_tangent:.4f})")
+    lines.append(")")
+    return "\n".join(lines)
+
+
+def _render_stackup_block(layers: list[StackupLayerSpec]) -> str:
+    blocks = [_render_stackup_layer_block(layer, order) for order, layer in enumerate(layers)]
+    rendered_layers = "\n".join(_indent_block(block, 1) for block in blocks)
+    return (
+        "(stackup\n"
+        f"{rendered_layers}\n"
+        '\t(copper_finish "None")\n'
+        "\t(dielectric_constraints no)\n"
+        ")"
+    )
+
+
+def _copper_layer_order(layer_name: str) -> int:
+    canonical = resolve_layer_name(layer_name)
+    if canonical not in _COPPER_LAYER_SEQUENCE:
+        raise ValueError(f"Layer '{layer_name}' is not a copper routing layer.")
+    return _COPPER_LAYER_SEQUENCE.index(canonical)
+
+
+def _configure_layer_via(via: Via, *, from_layer: str, to_layer: str) -> None:
+    start_layer = resolve_layer(from_layer)
+    end_layer = resolve_layer(to_layer)
+    via.padstack.proto.ClearField("layers")
+    layer_container = cast(Any, via.padstack.layers)
+    layer_container.extend([start_layer, end_layer])
+    via.padstack.drill.start_layer = start_layer
+    via.padstack.drill.end_layer = end_layer
+
+
+def _impedance_context_for_layer(
+    specs: list[StackupLayerSpec],
+    layer_name: str,
+) -> tuple[TraceType, float, float, float]:
+    canonical = resolve_layer_name(layer_name)
+    target_index = next(
+        (index for index, layer in enumerate(specs) if layer.name.replace(".", "_") == canonical),
+        None,
+    )
+    if target_index is None:
+        available = ", ".join(layer.name for layer in specs)
+        raise ValueError(f"Layer '{layer_name}' was not found in the current stackup: {available}")
+
+    copper_indices = [
+        index for index, layer in enumerate(specs) if _is_copper_stackup_layer(layer)
+    ]
+    target = specs[target_index]
+    previous_dielectric = next(
+        (
+            specs[index]
+            for index in range(target_index - 1, -1, -1)
+            if not _is_copper_stackup_layer(specs[index])
+        ),
+        None,
+    )
+    next_dielectric = next(
+        (
+            specs[index]
+            for index in range(target_index + 1, len(specs))
+            if not _is_copper_stackup_layer(specs[index])
+        ),
+        None,
+    )
+    adjacent_dielectrics = [
+        layer for layer in (previous_dielectric, next_dielectric) if layer is not None
+    ]
+    if not adjacent_dielectrics:
+        raise ValueError(
+            "The current stackup does not define dielectric spacing around that layer."
+        )
+
+    is_outer = target_index in {copper_indices[0], copper_indices[-1]}
+    if is_outer:
+        dielectric = previous_dielectric or next_dielectric
+        if dielectric is None:
+            raise ValueError(
+                "The current stackup does not define dielectric spacing around that layer."
+            )
+        trace_type: TraceType = "microstrip"
+        height_mm = dielectric.thickness_mm
+        er = dielectric.epsilon_r or 4.2
+    else:
+        trace_type = "stripline"
+        height_mm = (
+            sum(layer.thickness_mm for layer in adjacent_dielectrics)
+            / len(adjacent_dielectrics)
+        )
+        er_values = [layer.epsilon_r or 4.2 for layer in adjacent_dielectrics]
+        er = sum(er_values) / len(er_values)
+
+    copper_oz = target.thickness_mm / copper_thickness_mm(1.0)
+    return trace_type, height_mm, er, max(copper_oz, 0.1)
+
+
+def _required_creepage_mm(
+    voltage_v: float,
+    pollution_degree: int,
+    material_group: int,
+) -> float:
+    base_table: dict[int, list[tuple[float, float]]] = {
+        1: [(50.0, 0.2), (100.0, 0.4), (150.0, 0.6), (300.0, 1.2), (600.0, 2.4)],
+        2: [(50.0, 0.6), (100.0, 1.0), (150.0, 1.5), (300.0, 2.5), (600.0, 5.0)],
+        3: [(50.0, 1.0), (100.0, 1.5), (150.0, 2.5), (300.0, 4.0), (600.0, 8.0)],
+        4: [(50.0, 1.6), (100.0, 2.5), (150.0, 4.0), (300.0, 6.3), (600.0, 12.5)],
+    }
+    group_multiplier = {1: 0.8, 2: 0.9, 3: 1.0, 4: 1.1}
+    table = base_table[pollution_degree]
+    required_mm = table[-1][1]
+    for threshold_v, creepage_mm in table:
+        if voltage_v <= threshold_v:
+            required_mm = creepage_mm
+            break
+    if voltage_v > table[-1][0]:
+        required_mm += ((voltage_v - table[-1][0]) / 100.0) * 1.5
+    return round(required_mm * group_multiplier[material_group], 3)
+
+
+def _apply_stackup_to_board(content: str, layers: list[StackupLayerSpec]) -> str:
+    updated = _replace_or_append_root_block(
+        content,
+        "general",
+        _render_general_block(_total_stackup_thickness_mm(layers)),
+    )
+    stackup_block = _render_stackup_block(layers)
+    match = re.search(r"(?m)^\s*\(setup\b", updated)
+    if match is None:
+        setup_block = "(setup\n" + _indent_block(stackup_block, 1) + "\n)"
+        return _replace_or_append_root_block(updated, "setup", setup_block)
+
+    existing_setup, _ = _extract_block(updated, match.start())
+    refreshed_setup = _replace_or_append_child_block(existing_setup, "stackup", stackup_block)
+    return _replace_or_append_root_block(updated, "setup", refreshed_setup)
 
 
 def _find_footprint_by_reference(reference: str) -> _FootprintLike | None:
@@ -1088,16 +1453,162 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool()
     def pcb_get_stackup() -> str:
         """Show the current stackup."""
-        stackup = get_board().get_stackup()
-        lines = ["Board stackup:"]
-        for layer in stackup.layers:
-            material = getattr(layer, "material_name", "") or "-"
+        try:
+            layers = _current_stackup_specs()
+        except ValueError as exc:
+            return str(exc)
+
+        lines = [f"Board stackup ({len(layers)} layers):"]
+        for index, layer in enumerate(layers, start=1):
+            extras: list[str] = []
+            if layer.epsilon_r is not None:
+                extras.append(f"Er={layer.epsilon_r:.3f}")
+            if layer.loss_tangent is not None:
+                extras.append(f"loss={layer.loss_tangent:.4f}")
+            suffix = f" | {' | '.join(extras)}" if extras else ""
             lines.append(
-                f"- {BoardLayer.Name(layer.layer)} "
-                f"thickness={layer.thickness} nm "
-                f"material={material}"
+                f"- {index}. {layer.name} | type={layer.type} | "
+                f"thickness={layer.thickness_mm:.4f} mm | material={layer.material}{suffix}"
             )
+        lines.append(f"- Total thickness: {_total_stackup_thickness_mm(layers):.4f} mm")
         return "\n".join(lines)
+
+    @mcp.tool()
+    def pcb_set_stackup(layers: list[dict[str, object]]) -> str:
+        """Set the active board stackup using a file-backed profile."""
+        payload = SetStackupInput.model_validate({"layers": layers})
+        copper_count = sum(1 for layer in payload.layers if _is_copper_stackup_layer(layer))
+        if copper_count < 2:
+            raise ValueError("A valid stackup needs at least two copper layers.")
+
+        state_path = _write_stackup_state(payload.layers)
+        _transactional_board_write(lambda current: _apply_stackup_to_board(current, payload.layers))
+        reload_message = _reload_board_after_file_sync()
+        return "\n".join(
+            [
+                f"Configured stackup with {len(payload.layers)} layers.",
+                f"- Copper layers: {copper_count}",
+                f"- Total thickness: {_total_stackup_thickness_mm(payload.layers):.4f} mm",
+                f"- Saved stackup state: {state_path}",
+                f"- {reload_message}",
+            ]
+        )
+
+    @mcp.tool()
+    def pcb_get_impedance_for_trace(width_mm: float, layer_name: str) -> str:
+        """Estimate trace impedance for the supplied width on the named stackup layer."""
+        payload = ImpedanceForTraceInput(width_mm=width_mm, layer_name=layer_name)
+        specs = _current_stackup_specs()
+        trace_type, height_mm, er, copper_oz = _impedance_context_for_layer(
+            specs,
+            payload.layer_name,
+        )
+        impedance_ohm, effective_er = trace_impedance(
+            payload.width_mm,
+            height_mm,
+            er,
+            trace_type=trace_type,
+            copper_oz=copper_oz,
+        )
+        return "\n".join(
+            [
+                "Trace impedance from current stackup:",
+                f"- Layer: {resolve_layer_name(payload.layer_name)}",
+                f"- Trace type: {trace_type}",
+                f"- Width: {payload.width_mm:.4f} mm",
+                f"- Reference dielectric height: {height_mm:.4f} mm",
+                f"- Effective dielectric constant: {effective_er:.3f}",
+                f"- Copper weight estimate: {copper_oz:.3f} oz",
+                f"- Estimated impedance: {impedance_ohm:.2f} ohm",
+            ]
+        )
+
+    @mcp.tool()
+    def pcb_check_creepage_clearance(
+        voltage_v: float,
+        pollution_degree: int = 2,
+        material_group: int = 3,
+    ) -> str:
+        """Run a heuristic creepage clearance review against pad spacing."""
+        payload = CreepageCheckInput(
+            voltage_v=voltage_v,
+            pollution_degree=pollution_degree,
+            material_group=material_group,
+        )
+        if not _board_is_open():
+            return (
+                "Creepage review requires an active PCB opened through KiCad IPC. "
+                "Open the board in KiCad and rerun this tool."
+            )
+
+        pads = cast(list[_PadLike], list(get_board().get_pads()))
+        if len(pads) < 2:
+            return "At least two pads are required to evaluate creepage clearance."
+
+        required_mm = _required_creepage_mm(
+            payload.voltage_v,
+            payload.pollution_degree,
+            payload.material_group,
+        )
+        worst_pair: tuple[float, str, str, str, str] | None = None
+
+        for left_index, left_pad in enumerate(pads):
+            left_net = str(getattr(getattr(left_pad, "net", None), "name", "") or "")
+            if not left_net:
+                continue
+            left_size = getattr(left_pad, "size", Vector2.from_xy_mm(1.0, 1.0))
+            left_radius_mm = (
+                nm_to_mm(max(_coord_nm(left_size, "x"), _coord_nm(left_size, "y"))) / 2
+            )
+            left_x_mm = nm_to_mm(_coord_nm(left_pad.position, "x"))
+            left_y_mm = nm_to_mm(_coord_nm(left_pad.position, "y"))
+            left_ref = str(left_pad.parent.reference_field.text.value)
+            left_pin = str(left_pad.number)
+
+            for right_pad in pads[left_index + 1 :]:
+                right_net = str(getattr(getattr(right_pad, "net", None), "name", "") or "")
+                if not right_net or right_net == left_net:
+                    continue
+                right_size = getattr(right_pad, "size", Vector2.from_xy_mm(1.0, 1.0))
+                right_radius_mm = (
+                    nm_to_mm(max(_coord_nm(right_size, "x"), _coord_nm(right_size, "y"))) / 2
+                )
+                right_x_mm = nm_to_mm(_coord_nm(right_pad.position, "x"))
+                right_y_mm = nm_to_mm(_coord_nm(right_pad.position, "y"))
+                center_distance_mm = math.hypot(left_x_mm - right_x_mm, left_y_mm - right_y_mm)
+                edge_distance_mm = max(
+                    0.0,
+                    center_distance_mm - left_radius_mm - right_radius_mm,
+                )
+                right_ref = str(right_pad.parent.reference_field.text.value)
+                right_pin = str(right_pad.number)
+                candidate = (
+                    edge_distance_mm,
+                    f"{left_ref}.{left_pin}",
+                    left_net,
+                    f"{right_ref}.{right_pin}",
+                    right_net,
+                )
+                if worst_pair is None or candidate[0] < worst_pair[0]:
+                    worst_pair = candidate
+
+        if worst_pair is None:
+            return "No pad pairs on different named nets were available for creepage analysis."
+
+        actual_mm, left_name, left_net, right_name, right_net = worst_pair
+        verdict = "PASS" if actual_mm >= required_mm else "WARN"
+        return "\n".join(
+            [
+                f"Creepage clearance review ({verdict}):",
+                f"- Voltage: {payload.voltage_v:.1f} V",
+                f"- Pollution degree: {payload.pollution_degree}",
+                f"- Material group: {payload.material_group}",
+                f"- Required creepage (IEC-inspired heuristic): {required_mm:.3f} mm",
+                f"- Worst pad pair: {left_name} ({left_net}) vs {right_name} ({right_net})",
+                f"- Estimated edge-to-edge clearance: {actual_mm:.3f} mm",
+                "- Method: center spacing minus approximate pad radius on different nets.",
+            ]
+        )
 
     @mcp.tool()
     def pcb_get_selection() -> str:
@@ -1229,6 +1740,94 @@ def register(mcp: FastMCP) -> None:
         with board_transaction() as board:
             board.create_items([via])
         return "Via added successfully."
+
+    @mcp.tool()
+    def pcb_add_blind_via(
+        x_mm: float,
+        y_mm: float,
+        from_layer: str,
+        to_layer: str,
+        drill_mm: float = 0.2,
+        diameter_mm: float = 0.45,
+        net_name: str = "",
+    ) -> str:
+        """Add a blind or buried via between the requested copper layers."""
+        payload = LayerViaInput(
+            x_mm=x_mm,
+            y_mm=y_mm,
+            from_layer=from_layer,
+            to_layer=to_layer,
+            drill_mm=drill_mm,
+            diameter_mm=diameter_mm,
+            net_name=net_name,
+        )
+        start_order = _copper_layer_order(payload.from_layer)
+        end_order = _copper_layer_order(payload.to_layer)
+        if start_order == end_order:
+            raise ValueError("Blind vias require two different copper layers.")
+        if {start_order, end_order} == {0, len(_COPPER_LAYER_SEQUENCE) - 1}:
+            raise ValueError("Use pcb_add_via for full-stack through vias.")
+
+        via = Via()
+        via.position = Vector2.from_xy_mm(payload.x_mm, payload.y_mm)
+        via.diameter = mm_to_nm(payload.diameter_mm)
+        via.drill_diameter = mm_to_nm(payload.drill_mm)
+        via.type = ViaType.VT_BLIND_BURIED
+        _configure_layer_via(via, from_layer=payload.from_layer, to_layer=payload.to_layer)
+        if payload.net_name:
+            via.net = _find_net(payload.net_name)
+        with board_transaction() as board:
+            board.create_items([via])
+        from_name = resolve_layer_name(payload.from_layer)
+        to_name = resolve_layer_name(payload.to_layer)
+        return (
+            "Blind or buried via added successfully "
+            f"from {from_name} to {to_name}."
+        )
+
+    @mcp.tool()
+    def pcb_add_microvia(
+        x_mm: float,
+        y_mm: float,
+        from_layer: str,
+        to_layer: str,
+        drill_mm: float = 0.1,
+        diameter_mm: float = 0.25,
+        net_name: str = "",
+    ) -> str:
+        """Add a microvia between adjacent copper layers."""
+        payload = LayerViaInput(
+            x_mm=x_mm,
+            y_mm=y_mm,
+            from_layer=from_layer,
+            to_layer=to_layer,
+            drill_mm=drill_mm,
+            diameter_mm=diameter_mm,
+            net_name=net_name,
+        )
+        start_order = _copper_layer_order(payload.from_layer)
+        end_order = _copper_layer_order(payload.to_layer)
+        if start_order == end_order:
+            raise ValueError("Microvias require two different copper layers.")
+        if abs(start_order - end_order) != 1:
+            raise ValueError("Microvias should connect adjacent copper layers.")
+
+        via = Via()
+        via.position = Vector2.from_xy_mm(payload.x_mm, payload.y_mm)
+        via.diameter = mm_to_nm(payload.diameter_mm)
+        via.drill_diameter = mm_to_nm(payload.drill_mm)
+        via.type = ViaType.VT_MICRO
+        _configure_layer_via(via, from_layer=payload.from_layer, to_layer=payload.to_layer)
+        if payload.net_name:
+            via.net = _find_net(payload.net_name)
+        with board_transaction() as board:
+            board.create_items([via])
+        from_name = resolve_layer_name(payload.from_layer)
+        to_name = resolve_layer_name(payload.to_layer)
+        return (
+            "Microvia added successfully "
+            f"from {from_name} to {to_name}."
+        )
 
     @mcp.tool()
     def pcb_add_segment(

@@ -46,6 +46,9 @@ async def test_project_resources_prompts_and_library_surface(
     routing_tools = await call_tool_text(
         server, "kicad_get_tools_in_category", {"category": "routing"}
     )
+    pcb_read_tools = await call_tool_text(
+        server, "kicad_get_tools_in_category", {"category": "pcb_read"}
+    )
     pcb_write_tools = await call_tool_text(
         server, "kicad_get_tools_in_category", {"category": "pcb_write"}
     )
@@ -70,8 +73,13 @@ async def test_project_resources_prompts_and_library_surface(
     assert "pcb_read" in categories
     assert "kicad_get_version" in category_tools
     assert "pcb_auto_place_by_schematic" in pcb_write_tools
+    assert "pcb_set_stackup" in pcb_write_tools
+    assert "pcb_add_blind_via" in pcb_write_tools
+    assert "pcb_add_microvia" in pcb_write_tools
     assert "pcb_set_keepout_zone" in pcb_write_tools
     assert "pcb_add_teardrops" in pcb_write_tools
+    assert "pcb_get_impedance_for_trace" in pcb_read_tools
+    assert "pcb_check_creepage_clearance" in pcb_read_tools
     assert "lib_search_components" in library_tools
     assert "lib_get_component_details" in library_tools
     assert "lib_get_bom_with_pricing" in library_tools
