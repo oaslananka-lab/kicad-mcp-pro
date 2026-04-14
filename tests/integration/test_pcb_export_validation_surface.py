@@ -11,6 +11,7 @@ from kipy.proto.board.board_types_pb2 import BoardLayer, ViaType
 from kicad_mcp.config import get_config
 from kicad_mcp.discovery import CliCapabilities, get_cli_capabilities
 from kicad_mcp.server import build_server
+from kicad_mcp.tools.export import LOW_LEVEL_EXPORT_NOTICE
 from tests.conftest import call_tool_text
 
 
@@ -505,7 +506,7 @@ async def test_export_and_validation_surface(
     )
     get_cli_capabilities.cache_clear()
 
-    server = build_server("manufacturing")
+    server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
 
     outputs = [
@@ -548,6 +549,7 @@ async def test_export_and_validation_surface(
     ]
 
     joined = "\n".join(outputs)
+    assert LOW_LEVEL_EXPORT_NOTICE in joined
     assert "Gerber export completed" in joined
     assert "Drill export completed" in joined
     assert "BOM exported" in joined

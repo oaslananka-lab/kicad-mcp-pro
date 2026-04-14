@@ -66,8 +66,8 @@ def build_server(profile: str | None = None) -> FastMCP:
         schematic.register(server)
     if "library" in enabled:
         library.register(server)
-    if "export" in enabled:
-        export.register(server)
+    if "export" in enabled or "release_export" in enabled:
+        export.register(server, include_low_level_exports="export" in enabled)
     if "validation" in enabled:
         validation.register(server)
     if "dfm" in enabled:
@@ -106,7 +106,7 @@ def _print_startup_diagnostics(cfg: KiCadMCPConfig) -> None:
         kicad_cli=str(cfg.kicad_cli),
         kicad_version=find_kicad_version(cfg.kicad_cli) or "unknown",
         project_dir=str(cfg.project_dir) if cfg.project_dir else None,
-        gate_mode="hard-block",
+        gate_mode="release-export-only",
         ipc_status=_ipc_status_summary(),
     )
 

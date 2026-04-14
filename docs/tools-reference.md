@@ -24,6 +24,11 @@ For agent-driven design work, these tools form the minimum safe review loop:
 `export_manufacturing_package()` is a release-only tool and hard-blocks unless the
 full project gate is `PASS`.
 
+The `manufacturing` profile keeps its export surface narrow: use `get_board_stats()`
+and `export_manufacturing_package()` for the gated handoff. Low-level `export_*()`
+tools remain available in broader profiles such as `full` and `minimal` for debugging
+or interchange output, and those direct exports do not enforce `project_quality_gate()`.
+
 ## Design Intent Tools
 
 These tools persist the engineering assumptions that intent-aware placement checks use:

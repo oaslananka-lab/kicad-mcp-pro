@@ -7,6 +7,7 @@ import pytest
 from kicad_mcp.connection import KiCadConnectionError
 from kicad_mcp.discovery import CliCapabilities
 from kicad_mcp.server import build_server
+from kicad_mcp.tools.export import LOW_LEVEL_EXPORT_NOTICE
 from kicad_mcp.tools.validation import GateOutcome
 from tests.conftest import call_tool_text
 
@@ -43,8 +44,10 @@ async def test_export_gerber_uses_cli_variants(sample_project, monkeypatch) -> N
             supports_spice_netlist=True,
         ),
     )
-    server = build_server("manufacturing")
+    server = build_server("full")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
     text = await call_tool_text(server, "export_gerber", {"output_subdir": "gerber", "layers": []})
+    assert text.startswith(LOW_LEVEL_EXPORT_NOTICE)
     assert "Gerber export completed" in text
 
 
@@ -86,9 +89,11 @@ async def test_export_gerber_prefers_modern_command_then_legacy_fallback(
             supports_render=True,
         ),
     )
-    server = build_server("manufacturing")
+    server = build_server("full")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
     text = await call_tool_text(server, "export_gerber", {"output_subdir": "gerber", "layers": []})
 
+    assert text.startswith(LOW_LEVEL_EXPORT_NOTICE)
     assert "Gerber export completed" in text
     assert [command[3] for command in commands[:3]] == ["gerbers", "gerbers", "gerber"]
 
@@ -109,7 +114,7 @@ async def test_export_paths_reject_traversal_and_absolute_outputs(
             supports_render=True,
         ),
     )
-    server = build_server("manufacturing")
+    server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
 
     gerber = await call_tool_text(server, "export_gerber", {"output_subdir": "../escape"})
@@ -125,6 +130,10 @@ async def test_export_paths_reject_traversal_and_absolute_outputs(
         {"output_file": r"nested\render.png"},
     )
 
+    assert gerber.startswith(LOW_LEVEL_EXPORT_NOTICE)
+    assert step.startswith(LOW_LEVEL_EXPORT_NOTICE)
+    assert render.startswith(LOW_LEVEL_EXPORT_NOTICE)
+    assert render_backslash.startswith(LOW_LEVEL_EXPORT_NOTICE)
     assert "Invalid output path" in gerber
     assert "Invalid output path" in step
     assert "Invalid output path" in render
@@ -161,16 +170,76 @@ async def test_export_step_and_render_keep_relative_names_under_output_dir(
             supports_render=True,
         ),
     )
-    server = build_server("manufacturing")
+    server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
 
     step = await call_tool_text(server, "export_step", {"output_path": "board.step"})
     render = await call_tool_text(server, "export_3d_render", {"output_file": "render.png"})
 
+    assert step.startswith(LOW_LEVEL_EXPORT_NOTICE)
+    assert render.startswith(LOW_LEVEL_EXPORT_NOTICE)
     assert "STEP model exported" in step
     assert "Rendered board image exported" in render
     assert str(sample_project / "output" / "3d" / "board.step") in commands[0]
     assert str(sample_project / "output" / "3d" / "render.png") in commands[1]
+
+
+@pytest.mark.anyio
+async def test_low_level_exports_include_debug_notice(sample_project, monkeypatch) -> None:
+    def fake_run(cmd, *args: object, **kwargs: object):
+        _ = args, kwargs
+        command_blob = " ".join(str(part) for part in cmd)
+        output_path = sample_project / "output"
+        if "gerber" in command_blob:
+            out_dir = output_path / "gerber"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "demo-F_Cu.gbr").write_text("gerber", encoding="utf-8")
+        elif "drill" in command_blob:
+            out_dir = output_path / "gerber"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "demo.drl").write_text("drill", encoding="utf-8")
+        elif "bom" in command_blob:
+            output_path.mkdir(parents=True, exist_ok=True)
+            (output_path / "bom.csv").write_text("ref,value\nR1,10k\n", encoding="utf-8")
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr("kicad_mcp.tools.export.subprocess.run", fake_run)
+    monkeypatch.setattr("kicad_mcp.discovery.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "kicad_mcp.tools.export.get_cli_capabilities",
+        lambda _cli: CliCapabilities(
+            version="KiCad 10.0.1",
+            gerber_command="gerber",
+            drill_command="drill",
+            position_command="pos",
+            supports_ipc2581=True,
+            supports_svg=True,
+            supports_dxf=True,
+            supports_step=True,
+            supports_render=True,
+            supports_spice_netlist=True,
+        ),
+    )
+
+    server = build_server("full")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+
+    gerber = await call_tool_text(server, "export_gerber", {"output_subdir": "gerber", "layers": []})
+    drill = await call_tool_text(server, "export_drill", {"output_subdir": "gerber"})
+    bom = await call_tool_text(server, "export_bom", {"format": "csv"})
+
+    assert gerber.startswith(LOW_LEVEL_EXPORT_NOTICE)
+    assert "Gerber export completed" in gerber
+    assert drill.startswith(LOW_LEVEL_EXPORT_NOTICE)
+    assert "Drill export completed" in drill
+    assert bom.startswith(LOW_LEVEL_EXPORT_NOTICE)
+    assert "BOM exported" in bom
 
 
 @pytest.mark.anyio
@@ -215,6 +284,7 @@ async def test_run_drc_reads_json_report(sample_project, monkeypatch) -> None:
         ),
     )
     server = build_server("manufacturing")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
     text = await call_tool_text(server, "run_drc", {"save_report": True})
     assert "DRC summary" in text
 
@@ -512,11 +582,12 @@ async def test_export_pcb_pdf_uses_default_layers(sample_project, monkeypatch) -
             supports_spice_netlist=True,
         ),
     )
-    server = build_server("manufacturing")
+    server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
 
     text = await call_tool_text(server, "export_pcb_pdf", {})
 
+    assert text.startswith(LOW_LEVEL_EXPORT_NOTICE)
     assert "PCB PDF exported" in text
     assert commands
     assert "--layers" in commands[0]
@@ -539,11 +610,12 @@ async def test_export_pcb_pdf_joins_multiple_layers(sample_project, monkeypatch)
 
     monkeypatch.setattr("kicad_mcp.tools.export.subprocess.run", fake_run)
     monkeypatch.setattr("kicad_mcp.discovery.subprocess.run", fake_run)
-    server = build_server("manufacturing")
+    server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
 
     text = await call_tool_text(server, "export_pcb_pdf", {"layers": ["F.Cu", "Edge.Cuts"]})
 
+    assert text.startswith(LOW_LEVEL_EXPORT_NOTICE)
     assert "PCB PDF exported" in text
     assert commands
     assert commands[0].count("--layers") == 1
@@ -569,11 +641,12 @@ async def test_export_netlist_maps_kicad_format_for_cli(sample_project, monkeypa
 
     monkeypatch.setattr("kicad_mcp.tools.export.subprocess.run", fake_run)
     monkeypatch.setattr("kicad_mcp.discovery.subprocess.run", fake_run)
-    server = build_server("manufacturing")
+    server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
 
     text = await call_tool_text(server, "export_netlist", {"format": "kicad"})
 
+    assert text.startswith(LOW_LEVEL_EXPORT_NOTICE)
     assert "Netlist exported" in text
     assert commands
     assert "--format" in commands[0]
@@ -615,11 +688,12 @@ async def test_export_svg_uses_multi_mode_directory_output(sample_project, monke
             supports_spice_netlist=True,
         ),
     )
-    server = build_server("manufacturing")
+    server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
 
     text = await call_tool_text(server, "export_svg", {"layer": "Edge.Cuts"})
 
+    assert text.startswith(LOW_LEVEL_EXPORT_NOTICE)
     assert "SVG export completed" in text
     assert commands
     assert "--mode-multi" in commands[0]

@@ -21,7 +21,7 @@ Primary CI/CD and release automation runs in Azure DevOps. GitHub Actions in thi
 - Schematic tools for symbols, wires, labels, buses, no-connect markers, property updates, annotation, netlist-aware auto-layout, and IPC reload.
 - Library tools for symbol search, footprint search, datasheet lookup, footprint assignment, and custom symbol generation.
 - Validation tools for DRC, ERC, DFM, courtyard issues, silk overlaps, and schematic-versus-PCB footprint checks.
-- Project quality gates for schematic, schematic connectivity, PCB, placement, PCB transfer, manufacturing, and release readiness before fabrication exports.
+- Project quality gates for schematic, schematic connectivity, PCB, placement, PCB transfer, manufacturing, and gated manufacturing handoff via `export_manufacturing_package()`.
 - Export tools for Gerber, drill, BOM, PDF, netlist, STEP, render, pick-and-place, IPC-2581, SVG, and DXF.
 - Signal integrity tools for impedance synthesis, differential skew checks, stackup planning, via-stub review, and decoupling heuristics.
 - Power integrity tools for voltage-drop estimation, copper current checks, plane generation, and thermal via guidance.
@@ -368,9 +368,12 @@ that provide the required credentials.
 `export_manufacturing_package` is now a release-only helper. It first runs the full
 `project_quality_gate()` and hard-blocks the package when the design is still `FAIL`
 or `BLOCKED`. `pcb_transfer_quality_gate()` is part of that release contract, so
-schematic pad nets must transfer cleanly onto PCB pads before fabrication exports are
-allowed. Use the low-level export tools for debugging artifacts while iterating, then
-use the manufacturing package only after the project gate is clean.
+schematic pad nets must transfer cleanly onto PCB pads before the gated release
+handoff is allowed. Use the low-level export tools for debugging or interchange
+artifacts while iterating; they do not enforce `project_quality_gate()`. The
+`manufacturing` profile keeps its export surface narrow around `get_board_stats()` and
+`export_manufacturing_package()`, while broader profiles such as `full` and `minimal`
+continue to expose the direct `export_*()` tools.
 
 `pcb_placement_quality_gate()` is the blocking geometry/context gate. `pcb_score_placement()`
 adds softer density and spread heuristics so an agent can improve layout quality before a

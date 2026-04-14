@@ -67,6 +67,11 @@ async def test_project_resources_prompts_and_library_surface(
     vcs_tools = await call_tool_text(
         server, "kicad_get_tools_in_category", {"category": "version_control"}
     )
+    release_export_tools = await call_tool_text(
+        server,
+        "kicad_get_tools_in_category",
+        {"category": "release_export"},
+    )
 
     assert "Project directory" in info
     assert "Scan results" in scan
@@ -75,6 +80,7 @@ async def test_project_resources_prompts_and_library_surface(
     assert f"v{__version__}" in version
     assert "Quick Start" in help_text
     assert "pcb_read" in categories
+    assert "release_export" in categories
     assert "schematic_only" in categories
     assert "pcb_only" in categories
     assert "analysis" in categories
@@ -108,6 +114,8 @@ async def test_project_resources_prompts_and_library_surface(
     assert "dfm_run_manufacturer_check" in dfm_tools
     assert "vcs_init_git [HEADLESS]" in vcs_tools
     assert "vcs_restore_checkpoint" in vcs_tools
+    assert "export_manufacturing_package [HEADLESS]" in release_export_tools
+    assert "get_board_stats [HEADLESS]" in release_export_tools
 
     created = await call_tool_text(
         server,
@@ -146,6 +154,7 @@ async def test_project_resources_prompts_and_library_surface(
     assert "manufacturing release pass" in manufacturing.lower()
     assert "project_quality_gate" in manufacturing
     assert "pcb_transfer_quality_gate" in manufacturing
+    assert "broader profile" in manufacturing
     assert "closed-loop design review" in design_review_loop.lower()
     assert "kicad://project/fix_queue" in design_review_loop
     assert "project_get_design_intent" in design_review_loop
@@ -154,6 +163,7 @@ async def test_project_resources_prompts_and_library_surface(
     assert "gated handoff" in release_checklist.lower()
     assert "export_manufacturing_package" in release_checklist
     assert "pcb_transfer_quality_gate" in release_checklist
+    assert "broader profile" in release_checklist
 
     await call_tool_text(
         server,

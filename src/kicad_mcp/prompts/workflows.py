@@ -54,7 +54,8 @@ Move a design from schematic capture to PCB layout.
         """Checklist for manufacturing exports."""
         text = """
 Run a manufacturing release pass. Treat `export_manufacturing_package()` as a release
-step, not a debugging shortcut.
+step, not a debugging shortcut. In the `manufacturing` profile it is the only gated
+manufacturing export tool.
 
 1. `project_quality_gate()`
 2. If the gate is not `PASS`, stop and fix the blocking issues first.
@@ -63,12 +64,8 @@ step, not a debugging shortcut.
 5. `run_erc()`
 6. `get_board_stats()`
 7. `check_design_for_manufacture()`
-8. Use low-level export tools only for debugging if needed:
-   - `export_gerber()`
-   - `export_drill()`
-   - `export_bom()`
-   - `export_pick_and_place()`
-   - `export_ipc2581()`
+8. If you need low-level debug or interchange artifacts, switch to a broader profile
+   such as `full` or `minimal` and use the direct `export_*()` tools there.
 9. Only after a clean gate, call `export_manufacturing_package()`.
 """.strip()
         return [TextContent(type="text", text=text)]
@@ -129,7 +126,8 @@ Treat manufacturing release as a gated handoff.
    - `run_drc()`
    - `run_erc()`
    - `check_design_for_manufacture()`
-5. Use low-level export tools only for debugging artifacts.
+5. If you need low-level debug artifacts, switch to a broader profile such as `full`
+   or `minimal`; the `manufacturing` profile stays focused on gated release handoff.
 6. Release with `export_manufacturing_package()` only after every gate is clean.
 """.strip()
         return [TextContent(type="text", text=text)]

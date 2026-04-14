@@ -123,13 +123,20 @@ def _read_preview(path: Path) -> str:
     return content
 
 
-def register(mcp: FastMCP) -> None:
+LOW_LEVEL_EXPORT_NOTICE = (
+    "Debug export only: this low-level export does not enforce project_quality_gate(). "
+    "Use export_manufacturing_package() for a gated release handoff."
+)
+
+
+def _with_low_level_export_notice(message: str) -> str:
+    return f"{LOW_LEVEL_EXPORT_NOTICE}\n\n{message}"
+
+
+def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
     """Register export tools."""
 
-    @mcp.tool()
-    @headless_compatible
-    def export_gerber(output_subdir: str = "gerber", layers: list[str] | None = None) -> str:
-        """Export Gerber manufacturing files."""
+    def _export_gerber(output_subdir: str = "gerber", layers: list[str] | None = None) -> str:
         payload = ExportGerberInput(output_subdir=output_subdir, layers=layers or [])
         pcb_file = _get_pcb_file()
         try:
@@ -177,10 +184,12 @@ def register(mcp: FastMCP) -> None:
         files = sorted(out_dir.glob("*.gbr")) + sorted(out_dir.glob("*.g*"))
         return _format_file_list(files, f"Gerber export completed in {out_dir}:")
 
-    @mcp.tool()
     @headless_compatible
-    def export_drill(output_subdir: str = "gerber") -> str:
-        """Export drill files."""
+    def export_gerber(output_subdir: str = "gerber", layers: list[str] | None = None) -> str:
+        """Export Gerber manufacturing files."""
+        return _with_low_level_export_notice(_export_gerber(output_subdir, layers))
+
+    def _export_drill(output_subdir: str = "gerber") -> str:
         pcb_file = _get_pcb_file()
         try:
             out_dir = _ensure_output_dir(output_subdir)
@@ -206,10 +215,12 @@ def register(mcp: FastMCP) -> None:
         files = sorted(out_dir.glob("*.drl")) + sorted(out_dir.glob("*.xnc"))
         return _format_file_list(files, f"Drill export completed in {out_dir}:")
 
-    @mcp.tool()
     @headless_compatible
-    def export_bom(format: str = "csv") -> str:
-        """Export a bill of materials."""
+    def export_drill(output_subdir: str = "gerber") -> str:
+        """Export drill files."""
+        return _with_low_level_export_notice(_export_drill(output_subdir))
+
+    def _export_bom(format: str = "csv") -> str:
         payload = ExportBOMInput(format=format)
         sch_file = _get_sch_file()
         out_dir = _ensure_output_dir()
@@ -245,10 +256,12 @@ def register(mcp: FastMCP) -> None:
             return f"BOM export failed: {stderr or 'unknown error'}"
         return f"BOM exported to {out_file}\n\n{_read_preview(out_file)}"
 
-    @mcp.tool()
     @headless_compatible
-    def export_netlist(format: str = "kicad") -> str:
-        """Export a KiCad schematic netlist."""
+    def export_bom(format: str = "csv") -> str:
+        """Export a bill of materials."""
+        return _with_low_level_export_notice(_export_bom(format))
+
+    def _export_netlist(format: str = "kicad") -> str:
         payload = ExportNetlistInput(format=format)
         sch_file = _get_sch_file()
         out_dir = _ensure_output_dir()
@@ -278,16 +291,17 @@ def register(mcp: FastMCP) -> None:
             return f"Netlist export failed: {stderr or 'unknown error'}"
         return f"Netlist exported to {out_file}"
 
-    @mcp.tool()
+    @headless_compatible
+    def export_netlist(format: str = "kicad") -> str:
+        """Export a KiCad schematic netlist."""
+        return _with_low_level_export_notice(_export_netlist(format))
+
     @headless_compatible
     def export_spice_netlist() -> str:
         """Export a SPICE netlist."""
-        return str(export_netlist("spice"))
+        return _with_low_level_export_notice(_export_netlist("spice"))
 
-    @mcp.tool()
-    @headless_compatible
-    def export_pcb_pdf(layers: list[str] | None = None) -> str:
-        """Export the PCB to PDF."""
+    def _export_pcb_pdf(layers: list[str] | None = None) -> str:
         payload = ExportPdfInput(layers=layers or [])
         pcb_file = _get_pcb_file()
         out_dir = _ensure_output_dir()
@@ -322,10 +336,12 @@ def register(mcp: FastMCP) -> None:
             return f"PCB PDF export failed: {stderr or 'unknown error'}"
         return f"PCB PDF exported to {out_file}"
 
-    @mcp.tool()
     @headless_compatible
-    def export_sch_pdf() -> str:
-        """Export the schematic to PDF."""
+    def export_pcb_pdf(layers: list[str] | None = None) -> str:
+        """Export the PCB to PDF."""
+        return _with_low_level_export_notice(_export_pcb_pdf(layers))
+
+    def _export_sch_pdf() -> str:
         sch_file = _get_sch_file()
         out_dir = _ensure_output_dir()
         out_file = out_dir / "schematic.pdf"
@@ -339,16 +355,12 @@ def register(mcp: FastMCP) -> None:
             return f"Schematic PDF export failed: {stderr or 'unknown error'}"
         return f"Schematic PDF exported to {out_file}"
 
-    @mcp.tool()
     @headless_compatible
-    def export_3d_step() -> str:
-        """Export a STEP model for the active board."""
-        return str(export_step(""))
+    def export_sch_pdf() -> str:
+        """Export the schematic to PDF."""
+        return _with_low_level_export_notice(_export_sch_pdf())
 
-    @mcp.tool()
-    @headless_compatible
-    def export_step(output_path: str = "") -> str:
-        """Alias for STEP export with an optional explicit output path."""
+    def _export_step(output_path: str = "") -> str:
         pcb_file = _get_pcb_file()
         caps = get_cli_capabilities(get_config().kicad_cli)
         if not caps.supports_step:
@@ -368,14 +380,21 @@ def register(mcp: FastMCP) -> None:
             return f"STEP export failed: {stderr or 'unknown error'}"
         return f"STEP model exported to {out_file}"
 
-    @mcp.tool()
     @headless_compatible
-    def export_3d_render(
+    def export_3d_step() -> str:
+        """Export a STEP model for the active board."""
+        return _with_low_level_export_notice(_export_step(""))
+
+    @headless_compatible
+    def export_step(output_path: str = "") -> str:
+        """Alias for STEP export with an optional explicit output path."""
+        return _with_low_level_export_notice(_export_step(output_path))
+
+    def _export_3d_render(
         output_file: str = "render.png",
         side: str = "top",
         zoom: float = 1.0,
     ) -> str:
-        """Render the board to a PNG image."""
         payload = ExportRenderInput(output_file=output_file, side=side, zoom=zoom)
         pcb_file = _get_pcb_file()
         caps = get_cli_capabilities(get_config().kicad_cli)
@@ -417,10 +436,16 @@ def register(mcp: FastMCP) -> None:
             return f"3D render failed: {stderr or 'unknown error'}"
         return f"Rendered board image exported to {out_file}"
 
-    @mcp.tool()
     @headless_compatible
-    def export_pick_and_place(format: str = "csv") -> str:
-        """Export assembly position data."""
+    def export_3d_render(
+        output_file: str = "render.png",
+        side: str = "top",
+        zoom: float = 1.0,
+    ) -> str:
+        """Render the board to a PNG image."""
+        return _with_low_level_export_notice(_export_3d_render(output_file, side, zoom))
+
+    def _export_pick_and_place(format: str = "csv") -> str:
         pcb_file = _get_pcb_file()
         out_dir = _ensure_output_dir("assembly")
         out_file = out_dir / f"pick_and_place.{format}"
@@ -455,10 +480,12 @@ def register(mcp: FastMCP) -> None:
             return f"Pick and place export failed: {stderr or 'unknown error'}"
         return f"Pick and place data exported to {out_file}"
 
-    @mcp.tool()
     @headless_compatible
-    def export_ipc2581() -> str:
-        """Export IPC-2581 manufacturing data."""
+    def export_pick_and_place(format: str = "csv") -> str:
+        """Export assembly position data."""
+        return _with_low_level_export_notice(_export_pick_and_place(format))
+
+    def _export_ipc2581() -> str:
         pcb_file = _get_pcb_file()
         caps = get_cli_capabilities(get_config().kicad_cli)
         if not caps.supports_ipc2581:
@@ -475,10 +502,12 @@ def register(mcp: FastMCP) -> None:
             return f"IPC-2581 export failed: {stderr or 'unknown error'}"
         return f"IPC-2581 exported to {out_file}"
 
-    @mcp.tool()
     @headless_compatible
-    def export_svg(layer: str = "F.Cu") -> str:
-        """Export a board layer to SVG when supported."""
+    def export_ipc2581() -> str:
+        """Export IPC-2581 manufacturing data."""
+        return _with_low_level_export_notice(_export_ipc2581())
+
+    def _export_svg(layer: str = "F.Cu") -> str:
         pcb_file = _get_pcb_file()
         caps = get_cli_capabilities(get_config().kicad_cli)
         if not caps.supports_svg:
@@ -505,10 +534,12 @@ def register(mcp: FastMCP) -> None:
         files = sorted(out_dir.glob("*.svg"))
         return _format_file_list(files, f"SVG export completed in {out_dir}:")
 
-    @mcp.tool()
     @headless_compatible
-    def export_dxf(layer: str = "Edge.Cuts") -> str:
-        """Export a board layer to DXF when supported."""
+    def export_svg(layer: str = "F.Cu") -> str:
+        """Export a board layer to SVG when supported."""
+        return _with_low_level_export_notice(_export_svg(layer))
+
+    def _export_dxf(layer: str = "Edge.Cuts") -> str:
         pcb_file = _get_pcb_file()
         caps = get_cli_capabilities(get_config().kicad_cli)
         if not caps.supports_dxf:
@@ -545,7 +576,11 @@ def register(mcp: FastMCP) -> None:
         files = sorted(out_dir.glob("*.dxf"))
         return _format_file_list(files, f"DXF export completed in {out_dir}:")
 
-    @mcp.tool()
+    @headless_compatible
+    def export_dxf(layer: str = "Edge.Cuts") -> str:
+        """Export a board layer to DXF when supported."""
+        return _with_low_level_export_notice(_export_dxf(layer))
+
     @headless_compatible
     def get_board_stats() -> str:
         """Export board statistics and return a readable preview."""
@@ -563,7 +598,6 @@ def register(mcp: FastMCP) -> None:
             return f"Board stats export failed: {stderr or 'unknown error'}"
         return stdout or "Board statistics were generated without a text report."
 
-    @mcp.tool()
     @headless_compatible
     def export_manufacturing_package() -> str:
         """Generate the standard set of manufacturing exports."""
@@ -581,12 +615,31 @@ def register(mcp: FastMCP) -> None:
             )
 
         results = [
-            export_gerber(),
-            export_drill(),
-            export_bom(),
-            export_pick_and_place(),
+            _export_gerber(),
+            _export_drill(),
+            _export_bom(),
+            _export_pick_and_place(),
         ]
-        ipc_result = export_ipc2581()
+        ipc_result = _export_ipc2581()
         if not ipc_result.startswith("IPC-2581 export is not supported"):
             results.append(ipc_result)
         return "\n\n".join(results)
+
+    if include_low_level_exports:
+        mcp.tool()(export_gerber)
+        mcp.tool()(export_drill)
+        mcp.tool()(export_bom)
+        mcp.tool()(export_netlist)
+        mcp.tool()(export_spice_netlist)
+        mcp.tool()(export_pcb_pdf)
+        mcp.tool()(export_sch_pdf)
+        mcp.tool()(export_3d_step)
+        mcp.tool()(export_step)
+        mcp.tool()(export_3d_render)
+        mcp.tool()(export_pick_and_place)
+        mcp.tool()(export_ipc2581)
+        mcp.tool()(export_svg)
+        mcp.tool()(export_dxf)
+
+    mcp.tool()(get_board_stats)
+    mcp.tool()(export_manufacturing_package)

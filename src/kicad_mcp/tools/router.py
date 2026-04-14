@@ -164,7 +164,7 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
         ],
     },
     "export": {
-        "description": "Produce manufacturing, review, and interchange exports.",
+        "description": "Produce low-level debug, review, and interchange exports.",
         "tools": [
             "run_drc",
             "run_erc",
@@ -183,6 +183,11 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "export_ipc2581",
             "export_svg",
             "export_dxf",
+        ],
+    },
+    "release_export": {
+        "description": "Produce release-gated manufacturing handoff artifacts.",
+        "tools": [
             "export_manufacturing_package",
             "get_board_stats",
         ],
@@ -300,7 +305,7 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
     "minimal": ("project", "pcb_read", "export"),
     "schematic_only": ("project", "schematic", "library"),
     "pcb_only": ("project", "pcb_read", "pcb_write", "routing"),
-    "manufacturing": ("project", "pcb_read", "export", "validation", "dfm"),
+    "manufacturing": ("project", "pcb_read", "release_export", "validation", "dfm"),
     "high_speed": (
         "project",
         "schematic",
