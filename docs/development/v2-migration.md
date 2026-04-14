@@ -213,6 +213,9 @@ To make those checks contextual instead of purely geometric, the project surface
 
 - `project_set_design_intent`
 - `project_get_design_intent`
+- `project_get_design_spec`
+- `project_infer_design_spec`
+- `project_validate_design_spec`
 
 The persisted design-intent schema currently carries:
 

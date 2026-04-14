@@ -119,6 +119,26 @@ def register(mcp: FastMCP) -> None:
             f"Output directory: {cfg.output_dir}"
         )
 
+    @mcp.resource("kicad://project/spec")
+    def project_spec_resource() -> str:
+        """Resolved project design spec including explicit and inferred fields."""
+        from ..tools.project import _render_project_spec_resolution, resolve_design_intent
+
+        try:
+            return _render_project_spec_resolution(resolve_design_intent())
+        except Exception as exc:
+            return _blocked_resource("Project design spec", exc)
+
+    @mcp.resource("kicad://project/next_action")
+    def project_next_action_resource() -> str:
+        """Server-recommended next action derived from the fix queue."""
+        from ..tools.project import _next_action_payload
+
+        try:
+            return _next_action_payload().text
+        except Exception as exc:
+            return _blocked_resource("Project next action", exc)
+
     @mcp.resource("kicad://board/netlist")
     def board_netlist_resource() -> str:
         """Current board S-expression, bounded for safety."""
@@ -160,6 +180,16 @@ def register(mcp: FastMCP) -> None:
             return _format_gate(_evaluate_schematic_connectivity_gate())
         except Exception as exc:
             return _blocked_resource("Schematic connectivity quality gate", exc)
+
+    @mcp.resource("kicad://gate/{gate_name}")
+    def named_gate_resource(gate_name: str) -> str:
+        """Read a specific gate report by name."""
+        from ..tools.validation import render_gate_by_name
+
+        try:
+            return render_gate_by_name(gate_name)
+        except Exception as exc:
+            return _blocked_resource(f"Gate '{gate_name}'", exc)
 
     @mcp.resource("kicad://board/placement_quality")
     def board_placement_quality_resource() -> str:

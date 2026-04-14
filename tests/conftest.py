@@ -36,6 +36,17 @@ async def call_tool_text(server: object, name: str, arguments: dict[str, object]
     return tool_text(result)
 
 
+async def call_tool_payload(server: object, name: str, arguments: dict[str, object]) -> object:
+    """Call a FastMCP tool and extract structured payloads when available."""
+    result = await server.call_tool(name, arguments)
+    if isinstance(result, tuple) and len(result) == 2:
+        _, structured = result
+        if isinstance(structured, dict) and "result" in structured:
+            return structured["result"]
+        return structured
+    return result
+
+
 async def read_resource_text(server: object, uri: str) -> str:
     """Read an MCP resource and normalize its textual output."""
     result = await server.read_resource(uri)
@@ -78,6 +89,7 @@ def fake_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a fake kicad-cli executable path."""
     cli = tmp_path / "kicad-cli"
     cli.write_text("#!/bin/sh\n", encoding="utf-8")
+    cli.chmod(0o755)
     monkeypatch.setenv("KICAD_MCP_KICAD_CLI", str(cli))
     return cli
 

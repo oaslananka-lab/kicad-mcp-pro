@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from mcp.server.fastmcp import FastMCP
@@ -15,10 +16,17 @@ from .. import __version__
 from ..config import get_config
 from ..connection import KiCadConnectionError, get_kicad, reset_connection
 from ..discovery import find_kicad_version, find_recent_projects, scan_project_dir
+from ..models.component_contracts import find_component_contract
 from .metadata import headless_compatible
 from .router import TOOL_CATEGORIES, available_profiles
 
 logger = structlog.get_logger(__name__)
+
+PROJECT_SPEC_DIRNAME = ".kicad-mcp"
+PROJECT_SPEC_FILENAME = "project_spec.json"
+LEGACY_DESIGN_INTENT_FILENAME = "design_intent.json"
+DEFAULT_INFERRED_DECOUPLING_DISTANCE_MM = 6.0
+ProjectSpecSource = Literal["project_spec", "legacy_design_intent", "none"]
 
 
 class ScanDirectoryInput(BaseModel):
@@ -67,6 +75,50 @@ class ProjectDesignIntent(BaseModel):
     manufacturer_tier: str = Field(default="")
 
 
+ProjectDesignSpec = ProjectDesignIntent
+
+
+class ProjectSpecResolution(BaseModel):
+    """Combined explicit and inferred design-spec view for agent workflows."""
+
+    source: ProjectSpecSource = "none"
+    path: str = ""
+    explicit: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
+    inferred: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
+    resolved: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
+    notes: list[str] = Field(default_factory=list)
+
+
+class ProjectSpecPayload(BaseModel):
+    """Structured design-spec payload returned to capable MCP clients."""
+
+    text: str
+    source: ProjectSpecSource = "none"
+    path: str = ""
+    explicit: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
+    inferred: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
+    resolved: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
+    notes: list[str] = Field(default_factory=list)
+
+
+class ProjectSpecValidationPayload(BaseModel):
+    """Structured project-spec validation payload."""
+
+    text: str
+    valid: bool
+    issues: list[str] = Field(default_factory=list)
+
+
+class ProjectNextActionPayload(BaseModel):
+    """Structured next-action recommendation derived from the project gate."""
+
+    text: str
+    status: str
+    gate: str = ""
+    reason: str = ""
+    suggested_tool: str = ""
+
+
 def _render_project_info() -> str:
     cfg = get_config()
     cli_status = "found" if cfg.kicad_cli.exists() else "missing"
@@ -92,14 +144,29 @@ def _new_project_files(project_dir: Path, name: str) -> tuple[Path, Path, Path]:
     return project_file, pcb_file, sch_file
 
 
-def _design_intent_path() -> Path:
+def _project_spec_dir() -> Path:
     cfg = get_config()
     if cfg.project_dir is None:
         raise ValueError(
             "No project is configured. "
             "Call kicad_set_project() or kicad_create_new_project() first."
         )
-    return cfg.ensure_output_dir() / "design_intent.json"
+    return cfg.project_dir / PROJECT_SPEC_DIRNAME
+
+
+def _project_spec_path() -> Path:
+    return _project_spec_dir() / PROJECT_SPEC_FILENAME
+
+
+def _legacy_design_intent_path() -> Path:
+    cfg = get_config()
+    if cfg.project_dir is None:
+        raise ValueError(
+            "No project is configured. "
+            "Call kicad_set_project() or kicad_create_new_project() first."
+        )
+    output_dir = cfg.output_dir or (cfg.project_dir / "output")
+    return output_dir / LEGACY_DESIGN_INTENT_FILENAME
 
 
 def _normalized_unique(items: list[str]) -> list[str]:
@@ -141,11 +208,7 @@ def _normalize_design_intent(intent: ProjectDesignIntent) -> ProjectDesignIntent
     )
 
 
-def load_design_intent() -> ProjectDesignIntent:
-    """Load the persisted project design intent, or return defaults if none exists."""
-    path = _design_intent_path()
-    if not path.exists():
-        return ProjectDesignIntent()
+def _load_design_intent_from_path(path: Path) -> ProjectDesignIntent:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -154,9 +217,42 @@ def load_design_intent() -> ProjectDesignIntent:
     return _normalize_design_intent(ProjectDesignIntent.model_validate(payload))
 
 
+def _load_saved_design_intent() -> tuple[
+    ProjectDesignIntent,
+    Path | None,
+    ProjectSpecSource,
+    list[str],
+]:
+    notes: list[str] = []
+    path = _project_spec_path()
+    if path.exists():
+        return _load_design_intent_from_path(path), path, "project_spec", notes
+
+    legacy_path = _legacy_design_intent_path()
+    if legacy_path.exists():
+        notes.append(
+            "Loaded legacy output/design_intent.json. "
+            "Run project_set_design_intent() to migrate it into .kicad-mcp/project_spec.json."
+        )
+        return (
+            _load_design_intent_from_path(legacy_path),
+            legacy_path,
+            "legacy_design_intent",
+            notes,
+        )
+
+    return ProjectDesignIntent(), None, "none", notes
+
+
+def load_design_intent() -> ProjectDesignIntent:
+    """Load the explicitly saved project design intent/spec, if any."""
+    intent, _, _, _ = _load_saved_design_intent()
+    return intent
+
+
 def save_design_intent(intent: ProjectDesignIntent) -> Path:
-    """Persist the normalized project design intent to the output directory."""
-    path = _design_intent_path()
+    """Persist the normalized project design spec inside the project root."""
+    path = _project_spec_path()
     normalized = _normalize_design_intent(intent)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(normalized.model_dump(), indent=2), encoding="utf-8")
@@ -164,7 +260,7 @@ def save_design_intent(intent: ProjectDesignIntent) -> Path:
 
 
 def _render_design_intent(intent: ProjectDesignIntent) -> str:
-    lines = ["Project design intent:"]
+    lines = ["Project design spec:"]
     lines.append(
         "- Connector refs: "
         + (", ".join(intent.connector_refs) if intent.connector_refs else "(none)")
@@ -213,6 +309,356 @@ def _render_design_intent(intent: ProjectDesignIntent) -> str:
             f"size=({region.w_mm:.2f} x {region.h_mm:.2f}) mm"
         )
     return "\n".join(lines)
+
+
+def _entry_center(entry: dict[str, Any]) -> tuple[float, float] | None:
+    x_mm = entry.get("x_mm")
+    y_mm = entry.get("y_mm")
+    if x_mm is None or y_mm is None:
+        return None
+    return float(x_mm), float(y_mm)
+
+
+def _distance_mm(left: dict[str, Any], right: dict[str, Any]) -> float:
+    left_center = _entry_center(left)
+    right_center = _entry_center(right)
+    if left_center is None or right_center is None:
+        return math.inf
+    return math.hypot(left_center[0] - right_center[0], left_center[1] - right_center[1])
+
+
+def _critical_nets_from_entries(entries: dict[str, dict[str, Any]]) -> list[str]:
+    priority_tokens = ("USB", "CLK", "ETH", "PCIE", "HDMI", "RF", "ANT", "DDR")
+    critical: set[str] = set()
+    for entry in entries.values():
+        for net_name in entry.get("net_names", []):
+            candidate = str(net_name).strip()
+            if candidate and any(token in candidate.upper() for token in priority_tokens):
+                critical.add(candidate)
+    return sorted(critical)
+
+
+def _component_category(reference: str, entry: dict[str, Any]) -> str:
+    footprint_name = str(entry.get("name", "")).strip()
+    value_name = str(entry.get("value", "")).strip()
+    contract = find_component_contract(footprint=footprint_name)
+    if contract is not None:
+        category = contract.category
+        if category in {"mcu", "mcu_module"}:
+            return "mcu"
+        if category == "sensor":
+            return "sensor"
+        if category == "connector":
+            return "connector"
+        if category == "regulator":
+            return "regulator"
+        if category == "analog":
+            return "analog"
+        if category in {"memory", "interface"}:
+            return "digital"
+
+    upper_ref = reference.upper()
+    upper_name = footprint_name.upper()
+    upper_value = value_name.upper()
+    if upper_ref.startswith("J") or "CONNECTOR" in upper_name or "USB" in upper_name:
+        return "connector"
+    if upper_ref.startswith("C") or "CAPACITOR" in upper_name:
+        return "capacitor"
+    if "SENSOR" in upper_name or "SENSOR" in upper_value:
+        return "sensor"
+    if any(token in upper_name for token in ("BME280", "ADXL", "MPU6050", "LIS3DH")):
+        return "sensor"
+    if any(token in upper_name for token in ("ESP32", "RP2040", "STM32", "NRF")):
+        return "mcu"
+    if "MCU" in upper_value:
+        return "mcu"
+    if "REGULATOR" in upper_name or "BUCK" in upper_value or "LDO" in upper_value:
+        return "regulator"
+    if upper_ref.startswith("U") and any(
+        token in upper_name
+        for token in ("QFP", "QFN", "BGA", "SOIC", "DFN", "LGA", "MODULE", "DIP")
+    ):
+        return "ic"
+    return ""
+
+
+def _infer_design_intent_from_board() -> tuple[ProjectDesignIntent, list[str]]:
+    from .pcb import _normalize_board_content, _parse_board_footprint_blocks
+
+    cfg = get_config()
+    if cfg.pcb_file is None or not cfg.pcb_file.exists():
+        return ProjectDesignIntent(), ["No PCB file was available for design-spec inference."]
+
+    try:
+        content = _normalize_board_content(
+            cfg.pcb_file.read_text(encoding="utf-8", errors="ignore")
+        )
+    except OSError as exc:
+        return ProjectDesignIntent(), [f"PCB file could not be read for inference ({exc})."]
+
+    footprints = _parse_board_footprint_blocks(content)
+    if not footprints:
+        return (
+            ProjectDesignIntent(),
+            ["No PCB footprints were available for design-spec inference."],
+        )
+
+    categories = {
+        reference: _component_category(reference, entry)
+        for reference, entry in footprints.items()
+    }
+    connector_refs = sorted(
+        reference for reference, category in categories.items() if category == "connector"
+    )
+    sensor_cluster_refs = sorted(
+        reference for reference, category in categories.items() if category == "sensor"
+    )
+    analog_refs = sorted(
+        reference for reference, category in categories.items() if category == "analog"
+    )
+    digital_refs = sorted(
+        reference
+        for reference, category in categories.items()
+        if category in {"digital", "mcu"}
+    )
+    power_tree_refs = sorted(
+        (
+            reference
+            for reference, category in categories.items()
+            if category in {"connector", "regulator", "mcu"}
+        ),
+        key=lambda reference: (
+            float(footprints[reference].get("x_mm", 0.0) or 0.0),
+            reference,
+        ),
+    )
+
+    capacitor_refs = [
+        reference for reference, category in categories.items() if category == "capacitor"
+    ]
+    ic_candidates = [
+        reference
+        for reference, category in categories.items()
+        if category in {"analog", "digital", "ic", "mcu", "regulator", "sensor"}
+        or reference.upper().startswith("U")
+    ]
+    decoupling_pairs: list[dict[str, Any]] = []
+    for reference in sorted(ic_candidates):
+        if not capacitor_refs:
+            continue
+        nearest_caps = sorted(
+            capacitor_refs,
+            key=lambda capacitor_ref: _distance_mm(
+                footprints[reference], footprints[capacitor_ref]
+            ),
+        )[:1]
+        if nearest_caps:
+            decoupling_pairs.append(
+                {
+                    "ic_ref": reference,
+                    "cap_refs": nearest_caps,
+                    "max_distance_mm": DEFAULT_INFERRED_DECOUPLING_DISTANCE_MM,
+                }
+            )
+
+    notes = [
+        f"Inferred {len(connector_refs)} connector refs from PCB footprints.",
+        f"Inferred {len(decoupling_pairs)} decoupling pair candidates from PCB placement.",
+        f"Inferred {len(sensor_cluster_refs)} sensor refs from PCB footprints.",
+        f"Inferred {len(power_tree_refs)} power-tree refs from PCB placement order.",
+    ]
+    return (
+        _normalize_design_intent(
+            ProjectDesignIntent(
+                connector_refs=connector_refs,
+                decoupling_pairs=decoupling_pairs,
+                critical_nets=_critical_nets_from_entries(footprints),
+                power_tree_refs=power_tree_refs,
+                analog_refs=analog_refs,
+                digital_refs=digital_refs,
+                sensor_cluster_refs=sensor_cluster_refs,
+            )
+        ),
+        notes,
+    )
+
+
+def _merge_design_intent(
+    explicit: ProjectDesignIntent,
+    inferred: ProjectDesignIntent,
+) -> ProjectDesignIntent:
+    return _normalize_design_intent(
+        ProjectDesignIntent(
+            connector_refs=explicit.connector_refs or inferred.connector_refs,
+            decoupling_pairs=explicit.decoupling_pairs or inferred.decoupling_pairs,
+            critical_nets=explicit.critical_nets or inferred.critical_nets,
+            power_tree_refs=explicit.power_tree_refs or inferred.power_tree_refs,
+            analog_refs=explicit.analog_refs or inferred.analog_refs,
+            digital_refs=explicit.digital_refs or inferred.digital_refs,
+            sensor_cluster_refs=explicit.sensor_cluster_refs or inferred.sensor_cluster_refs,
+            rf_keepout_regions=explicit.rf_keepout_regions or inferred.rf_keepout_regions,
+            manufacturer=explicit.manufacturer or inferred.manufacturer,
+            manufacturer_tier=explicit.manufacturer_tier or inferred.manufacturer_tier,
+        )
+    )
+
+
+def resolve_design_intent() -> ProjectSpecResolution:
+    """Resolve the saved and inferred design spec into a single view."""
+    explicit, path, source, notes = _load_saved_design_intent()
+    inferred, inference_notes = _infer_design_intent_from_board()
+    resolved = _merge_design_intent(explicit, inferred)
+    return ProjectSpecResolution(
+        source=source,
+        path=str(path) if path is not None else "",
+        explicit=explicit,
+        inferred=inferred,
+        resolved=resolved,
+        notes=[*notes, *inference_notes],
+    )
+
+
+def validate_design_intent(intent: ProjectDesignIntent | None = None) -> list[str]:
+    """Validate explicit or resolved design-spec references against the active board."""
+    from .pcb import _normalize_board_content, _parse_board_footprint_blocks
+
+    cfg = get_config()
+    if cfg.pcb_file is None or not cfg.pcb_file.exists():
+        return []
+
+    try:
+        board_text = _normalize_board_content(
+            cfg.pcb_file.read_text(encoding="utf-8", errors="ignore")
+        )
+    except OSError as exc:
+        return [f"PCB file could not be read while validating the design spec ({exc})."]
+
+    references = set(_parse_board_footprint_blocks(board_text))
+    candidate = intent or resolve_design_intent().resolved
+    issues: list[str] = []
+    for reference in candidate.connector_refs:
+        if reference not in references:
+            issues.append(f"Connector ref '{reference}' is not present on the PCB.")
+    for reference in candidate.power_tree_refs:
+        if reference not in references:
+            issues.append(f"Power-tree ref '{reference}' is not present on the PCB.")
+    for reference in candidate.analog_refs:
+        if reference not in references:
+            issues.append(f"Analog ref '{reference}' is not present on the PCB.")
+    for reference in candidate.digital_refs:
+        if reference not in references:
+            issues.append(f"Digital ref '{reference}' is not present on the PCB.")
+    for reference in candidate.sensor_cluster_refs:
+        if reference not in references:
+            issues.append(f"Sensor-cluster ref '{reference}' is not present on the PCB.")
+    for pair in candidate.decoupling_pairs:
+        if pair.ic_ref not in references:
+            issues.append(f"Decoupling IC ref '{pair.ic_ref}' is not present on the PCB.")
+        for reference in pair.cap_refs:
+            if reference not in references:
+                issues.append(f"Decoupling capacitor ref '{reference}' is not present on the PCB.")
+    return issues
+
+
+def _render_project_spec_resolution(resolution: ProjectSpecResolution) -> str:
+    source_label = {
+        "project_spec": ".kicad-mcp/project_spec.json",
+        "legacy_design_intent": "legacy output/design_intent.json",
+        "none": "(none)",
+    }[resolution.source]
+    lines = ["Project design spec resolution:"]
+    lines.append(f"- Explicit source: {source_label}")
+    lines.append(f"- Explicit path: {resolution.path or '(none)'}")
+    lines.append(
+        f"- Inferred connectors / decoupling / sensors: "
+        f"{len(resolution.inferred.connector_refs)} / "
+        f"{len(resolution.inferred.decoupling_pairs)} / "
+        f"{len(resolution.inferred.sensor_cluster_refs)}"
+    )
+    for note in resolution.notes[:8]:
+        lines.append(f"- Note: {note}")
+    lines.append("")
+    lines.append(_render_design_intent(resolution.resolved))
+    return "\n".join(lines)
+
+
+def _queue_reason_from_details(details: list[str], summary: str) -> str:
+    ignored_prefixes = (
+        "Footprints analysed:",
+        "Board frame:",
+        "Density:",
+        "Connector checks:",
+        "Decoupling pair checks:",
+        "RF keepout checks:",
+        "Power-tree refs checked:",
+        "Analog refs checked:",
+        "Digital refs checked:",
+        "Sensor-cluster refs checked:",
+        "Placement score:",
+    )
+    for detail in details:
+        cleaned = detail.strip()
+        if not cleaned or cleaned.startswith(ignored_prefixes):
+            continue
+        if cleaned.startswith("FAIL: "):
+            return cleaned[6:]
+        if cleaned.startswith("WARN: "):
+            return cleaned[6:]
+        if cleaned.startswith("BLOCKED: "):
+            return cleaned[9:]
+        return cleaned
+    return summary
+
+
+def _suggested_tool_for_gate(name: str) -> str:
+    return {
+        "Schematic": "run_erc()",
+        "Schematic connectivity": "schematic_connectivity_gate()",
+        "PCB": "run_drc()",
+        "Placement": "pcb_score_placement()",
+        "PCB transfer": "pcb_transfer_quality_gate()",
+        "Manufacturing": "manufacturing_quality_gate()",
+        "Footprint parity": "validate_footprints_vs_schematic()",
+    }.get(name, "project_quality_gate()")
+
+
+def _next_action_payload() -> ProjectNextActionPayload:
+    from .validation import _evaluate_project_gate
+
+    outcomes = _evaluate_project_gate()
+    actionable = [outcome for outcome in outcomes if outcome.status != "PASS"]
+    if not actionable:
+        lines = [
+            "Project next action:",
+            "- Status: PASS",
+            "- Suggested tool: export_manufacturing_package()",
+            "- Reason: No blocking issues remain.",
+        ]
+        return ProjectNextActionPayload(
+            text="\n".join(lines),
+            status="PASS",
+            reason="No blocking issues remain.",
+            suggested_tool="export_manufacturing_package()",
+        )
+
+    actionable.sort(key=lambda outcome: (0 if outcome.status == "BLOCKED" else 1, outcome.name))
+    target = actionable[0]
+    reason = _queue_reason_from_details(target.details, target.summary)
+    suggested_tool = _suggested_tool_for_gate(target.name)
+    lines = [
+        "Project next action:",
+        f"- Status: {target.status}",
+        f"- Gate: {target.name}",
+        f"- Suggested tool: {suggested_tool}",
+        f"- Reason: {reason}",
+    ]
+    return ProjectNextActionPayload(
+        text="\n".join(lines),
+        status=target.status,
+        gate=target.name,
+        reason=reason,
+        suggested_tool=suggested_tool,
+    )
 
 
 def register(mcp: FastMCP) -> None:
@@ -300,7 +746,7 @@ def register(mcp: FastMCP) -> None:
         )
         path = save_design_intent(updated)
         return (
-            f"Stored project design intent at {path}.\n"
+            f"Stored project design spec at {path}.\n"
             f"{_render_design_intent(_normalize_design_intent(updated))}"
         )
 
@@ -312,9 +758,72 @@ def register(mcp: FastMCP) -> None:
         if intent == ProjectDesignIntent():
             return (
                 "No explicit project design intent is stored yet.\n"
+                "Use `project_get_design_spec()` to inspect the resolved "
+                "explicit + inferred view.\n"
                 f"{_render_design_intent(intent)}"
             )
         return _render_design_intent(intent)
+
+    @mcp.tool()
+    @headless_compatible
+    def project_get_design_spec() -> ProjectSpecPayload:
+        """Return the resolved project design spec with explicit and inferred fields."""
+        resolution = resolve_design_intent()
+        text = _render_project_spec_resolution(resolution)
+        return ProjectSpecPayload(
+            text=text,
+            source=resolution.source,
+            path=resolution.path,
+            explicit=resolution.explicit,
+            inferred=resolution.inferred,
+            resolved=resolution.resolved,
+            notes=resolution.notes,
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def project_infer_design_spec() -> ProjectSpecPayload:
+        """Infer a design spec from the active PCB without writing it to disk."""
+        inferred, notes = _infer_design_intent_from_board()
+        resolution = ProjectSpecResolution(
+            source="none",
+            explicit=ProjectDesignIntent(),
+            inferred=inferred,
+            resolved=inferred,
+            notes=notes,
+        )
+        return ProjectSpecPayload(
+            text=_render_project_spec_resolution(resolution),
+            source=resolution.source,
+            path=resolution.path,
+            explicit=resolution.explicit,
+            inferred=resolution.inferred,
+            resolved=resolution.resolved,
+            notes=resolution.notes,
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def project_validate_design_spec() -> ProjectSpecValidationPayload:
+        """Validate the resolved design spec against the active project PCB."""
+        issues = validate_design_intent()
+        lines = ["Project design spec validation:"]
+        lines.append(f"- Valid: {'yes' if not issues else 'no'}")
+        if issues:
+            lines.extend(f"- {issue}" for issue in issues[:20])
+        else:
+            lines.append("- No reference mismatches were found.")
+        return ProjectSpecValidationPayload(
+            text="\n".join(lines),
+            valid=not issues,
+            issues=issues,
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def project_get_next_action() -> ProjectNextActionPayload:
+        """Return the next high-priority action derived from the current project gate."""
+        return _next_action_payload()
 
     @mcp.tool()
     @headless_compatible

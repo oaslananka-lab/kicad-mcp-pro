@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, Field
 
 from ..config import get_config
 from ..connection import KiCadConnectionError, get_board
@@ -50,6 +51,43 @@ class PlacementAnalysis:
     checked_analog_refs: int = 0
     checked_digital_refs: int = 0
     checked_sensor_cluster_refs: int = 0
+
+
+class GateOutcomePayload(BaseModel):
+    """Machine-readable gate outcome for MCP clients that support structured output."""
+
+    name: str
+    status: GateStatus
+    summary: str
+    details: list[str] = Field(default_factory=list)
+
+
+class ProjectGateReportPayload(BaseModel):
+    """Structured project-quality-gate report."""
+
+    text: str
+    status: GateStatus
+    summary: str
+    outcomes: list[GateOutcomePayload] = Field(default_factory=list)
+
+
+class PlacementGateReportPayload(BaseModel):
+    """Structured placement analysis payload."""
+
+    text: str
+    status: GateStatus
+    summary: str
+    score: int | None = None
+    footprint_count: int | None = None
+    checked_connectors: int = 0
+    checked_decoupling_pairs: int = 0
+    checked_keepouts: int = 0
+    checked_power_tree_refs: int = 0
+    checked_analog_refs: int = 0
+    checked_digital_refs: int = 0
+    checked_sensor_cluster_refs: int = 0
+    hard_failures: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 def _load_report(path: Path) -> dict[str, object]:
@@ -162,6 +200,15 @@ def _format_gate(outcome: GateOutcome) -> str:
     for detail in outcome.details:
         lines.append(f"- {detail}")
     return "\n".join(lines)
+
+
+def _gate_outcome_payload(outcome: GateOutcome) -> GateOutcomePayload:
+    return GateOutcomePayload(
+        name=outcome.name,
+        status=outcome.status,
+        summary=outcome.summary,
+        details=outcome.details,
+    )
 
 
 def _board_footprint_references() -> tuple[set[str], str, str | None]:
@@ -733,7 +780,7 @@ def _placement_analysis() -> tuple[PlacementAnalysis | None, GateOutcome | None]
         _parse_board_footprint_blocks,
         _placement_boxes_overlap,
     )
-    from .project import ProjectDesignIntent, load_design_intent
+    from .project import ProjectDesignIntent, resolve_design_intent
 
     try:
         content = _normalize_board_content(
@@ -755,7 +802,7 @@ def _placement_analysis() -> tuple[PlacementAnalysis | None, GateOutcome | None]
         )
 
     try:
-        intent = load_design_intent()
+        intent = resolve_design_intent().resolved
     except ValueError:
         intent = ProjectDesignIntent()
 
@@ -1144,11 +1191,11 @@ def _evaluate_manufacturing_gate(
     tier: str | None = None,
 ) -> GateOutcome:
     from .dfm import _dfm_check_lines, _load_profile, _selected_profile
-    from .project import load_design_intent
+    from .project import resolve_design_intent
 
     if manufacturer is None or tier is None:
         try:
-            intent = load_design_intent()
+            intent = resolve_design_intent().resolved
         except ValueError:
             intent = None
         if intent is not None:
@@ -1221,6 +1268,97 @@ def _render_project_gate_report(
     ]
     lines.extend(_format_gate(outcome) for outcome in outcomes)
     return "\n\n".join(lines)
+
+
+def _project_gate_report_payload(
+    outcomes: list[GateOutcome],
+    *,
+    summary: str | None = None,
+) -> ProjectGateReportPayload:
+    text = _render_project_gate_report(outcomes, summary=summary)
+    status = _combined_status(outcomes)
+    headline = (
+        summary
+        or (
+            "This project is ready for the next stage."
+            if status == "PASS"
+            else "Blocking issues remain. Do not treat this design as production-ready yet."
+        )
+    )
+    return ProjectGateReportPayload(
+        text=text,
+        status=status,
+        summary=headline.lstrip("- ").strip(),
+        outcomes=[_gate_outcome_payload(outcome) for outcome in outcomes],
+    )
+
+
+def _placement_gate_report_payload() -> PlacementGateReportPayload:
+    analysis, blocked = _placement_analysis()
+    if blocked is not None:
+        return PlacementGateReportPayload(
+            text=_format_gate(blocked),
+            status=blocked.status,
+            summary=blocked.summary,
+            hard_failures=blocked.details,
+        )
+    if analysis is None:
+        raise RuntimeError("Placement analysis unexpectedly returned no result.")
+    outcome = _evaluate_pcb_placement_gate()
+    return PlacementGateReportPayload(
+        text=_format_gate(outcome),
+        status=outcome.status,
+        summary=outcome.summary,
+        score=analysis.score,
+        footprint_count=analysis.footprint_count,
+        checked_connectors=analysis.checked_connectors,
+        checked_decoupling_pairs=analysis.checked_decoupling_pairs,
+        checked_keepouts=analysis.checked_keepouts,
+        checked_power_tree_refs=analysis.checked_power_tree_refs,
+        checked_analog_refs=analysis.checked_analog_refs,
+        checked_digital_refs=analysis.checked_digital_refs,
+        checked_sensor_cluster_refs=analysis.checked_sensor_cluster_refs,
+        hard_failures=analysis.hard_failures,
+        warnings=analysis.warnings,
+    )
+
+
+def render_gate_by_name(
+    gate_name: str,
+    *,
+    manufacturer: str | None = None,
+    tier: str | None = None,
+) -> str:
+    """Render a single named gate or the full project gate as text."""
+    normalized = gate_name.strip().lower().replace("-", "_")
+    if normalized in {"project", "project_quality", "project_quality_gate"}:
+        return _render_project_gate_report(
+            _evaluate_project_gate(manufacturer=manufacturer, tier=tier)
+        )
+    if normalized in {"schematic", "schematic_quality", "schematic_quality_gate"}:
+        return _format_gate(_evaluate_schematic_gate())
+    if normalized in {
+        "schematic_connectivity",
+        "schematic_connectivity_gate",
+        "connectivity",
+    }:
+        return _format_gate(_evaluate_schematic_connectivity_gate())
+    if normalized in {"pcb", "pcb_quality", "pcb_quality_gate"}:
+        return _format_gate(_evaluate_pcb_gate())
+    if normalized in {"placement", "pcb_placement", "pcb_placement_quality_gate"}:
+        return _format_gate(_evaluate_pcb_placement_gate())
+    if normalized in {"transfer", "pcb_transfer", "pcb_transfer_quality_gate"}:
+        return _format_gate(_evaluate_pcb_transfer_gate())
+    if normalized in {"manufacturing", "manufacturing_quality_gate"}:
+        return _format_gate(
+            _evaluate_manufacturing_gate(manufacturer=manufacturer, tier=tier)
+        )
+    if normalized in {"footprint_parity", "parity"}:
+        return _format_gate(_footprint_parity_outcome())
+    raise ValueError(
+        "Unknown gate name. Use one of: project, schematic, schematic_connectivity, "
+        "pcb, placement, transfer, manufacturing, footprint_parity."
+    )
 
 
 def register(mcp: FastMCP) -> None:
@@ -1313,6 +1451,12 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     @headless_compatible
+    def pcb_placement_quality_report() -> PlacementGateReportPayload:
+        """Return a structured placement-quality report for capable MCP clients."""
+        return _placement_gate_report_payload()
+
+    @mcp.tool()
+    @headless_compatible
     def pcb_transfer_quality_gate() -> str:
         """Evaluate whether named schematic pad nets transferred cleanly onto PCB pads."""
         return _format_gate(_evaluate_pcb_transfer_gate())
@@ -1359,6 +1503,19 @@ def register(mcp: FastMCP) -> None:
             tier=tier or None,
         )
         return _render_project_gate_report(outcomes)
+
+    @mcp.tool()
+    @headless_compatible
+    def project_quality_gate_report(
+        manufacturer: str = "",
+        tier: str = "",
+    ) -> ProjectGateReportPayload:
+        """Return the full project gate in structured form for capable MCP clients."""
+        outcomes = _evaluate_project_gate(
+            manufacturer=manufacturer or None,
+            tier=tier or None,
+        )
+        return _project_gate_report_payload(outcomes)
 
     @mcp.tool()
     @headless_compatible

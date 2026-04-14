@@ -230,7 +230,11 @@ async def test_low_level_exports_include_debug_notice(sample_project, monkeypatc
     server = build_server("full")
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
 
-    gerber = await call_tool_text(server, "export_gerber", {"output_subdir": "gerber", "layers": []})
+    gerber = await call_tool_text(
+        server,
+        "export_gerber",
+        {"output_subdir": "gerber", "layers": []},
+    )
     drill = await call_tool_text(server, "export_drill", {"output_subdir": "gerber"})
     bom = await call_tool_text(server, "export_bom", {"format": "csv"})
 

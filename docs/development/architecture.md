@@ -15,6 +15,7 @@ It is structured around four layers:
 
 1. Intent
    - project-scoped design assumptions persisted by `project_set_design_intent()`
+   - resolved design-spec view available through `project_get_design_spec()`
    - connector refs, decoupling pairs, power-tree refs, analog/digital groups,
      sensor clusters, RF keepouts, critical nets, and fab profile hints
 2. Builder

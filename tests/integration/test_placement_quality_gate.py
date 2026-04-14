@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from kicad_mcp.server import build_server
-from tests.conftest import call_tool_text
+from tests.conftest import call_tool_payload, call_tool_text
 
 
 def _footprint_block(
@@ -76,8 +76,9 @@ async def test_project_design_intent_roundtrip(sample_project: Path, mock_kicad)
         },
     )
     fetched = await call_tool_text(server, "project_get_design_intent", {})
+    spec_path = sample_project / ".kicad-mcp" / "project_spec.json"
 
-    assert "Stored project design intent" in stored
+    assert "Stored project design spec" in stored
     assert "Connector refs: J1" in fetched
     assert "U1 <- C1" in fetched
     assert "Power-tree refs: J1, U1" in fetched
@@ -86,6 +87,59 @@ async def test_project_design_intent_roundtrip(sample_project: Path, mock_kicad)
     assert "Sensor cluster refs: U2, U3" in fetched
     assert "Antenna" in fetched
     assert "JLCPCB / standard" in fetched
+    assert spec_path.exists()
+
+
+@pytest.mark.anyio
+async def test_project_design_spec_infers_decoupling_and_sensor_clusters(
+    sample_project: Path,
+    mock_kicad,
+) -> None:
+    _ = mock_kicad
+    _write_board(
+        sample_project,
+        _footprint_block(
+            "U1",
+            "MCU",
+            10.0,
+            10.0,
+            name="Package_QFP:TQFP-48",
+            width_mm=6.0,
+            height_mm=6.0,
+        ),
+        _footprint_block("C1", "100n", 34.0, 24.0, name="Capacitor_SMD:C_0603"),
+        _footprint_block(
+            "U2",
+            "SensorA",
+            3.0,
+            3.0,
+            name="Sensor_Motion:ADXL355",
+            width_mm=4.0,
+            height_mm=4.0,
+        ),
+        _footprint_block(
+            "U3",
+            "SensorB",
+            37.0,
+            27.0,
+            name="Sensor:BME280",
+            width_mm=4.0,
+            height_mm=4.0,
+        ),
+    )
+    server = build_server("full")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+
+    payload = await call_tool_payload(server, "project_get_design_spec", {})
+
+    assert isinstance(payload, dict)
+    resolved = payload["resolved"]
+    inferred = payload["inferred"]
+    assert payload["source"] == "none"
+    assert inferred["decoupling_pairs"][0]["ic_ref"] == "U1"
+    assert inferred["sensor_cluster_refs"] == ["U2", "U3"]
+    assert resolved["decoupling_pairs"][0]["cap_refs"] == ["C1"]
+    assert resolved["sensor_cluster_refs"] == ["U2", "U3"]
 
 
 @pytest.mark.anyio

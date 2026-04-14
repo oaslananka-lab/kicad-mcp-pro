@@ -9,7 +9,7 @@ from kicad_mcp import __version__
 from kicad_mcp.server import build_server
 from kicad_mcp.utils.component_search import ComponentRecord
 from kicad_mcp.utils.sexpr import _extract_block, _sexpr_string
-from tests.conftest import call_tool_text, get_prompt_text, read_resource_text
+from tests.conftest import call_tool_payload, call_tool_text, get_prompt_text, read_resource_text
 
 
 @pytest.mark.anyio
@@ -87,6 +87,9 @@ async def test_project_resources_prompts_and_library_surface(
     assert "kicad_get_version" in category_tools
     assert "project_set_design_intent [HEADLESS]" in category_tools
     assert "project_get_design_intent [HEADLESS]" in category_tools
+    assert "project_get_design_spec [HEADLESS]" in category_tools
+    assert "project_validate_design_spec [HEADLESS]" in category_tools
+    assert "project_get_next_action [HEADLESS]" in category_tools
     assert "pcb_auto_place_by_schematic" in pcb_write_tools
     assert "pcb_set_stackup" in pcb_write_tools
     assert "pcb_add_blind_via" in pcb_write_tools
@@ -125,12 +128,15 @@ async def test_project_resources_prompts_and_library_surface(
     assert "Created project 'fresh_project'" in created
 
     project_resource = await read_resource_text(server, "kicad://project/info")
+    project_spec_resource = await read_resource_text(server, "kicad://project/spec")
+    project_next_action_resource = await read_resource_text(server, "kicad://project/next_action")
     board_summary = await read_resource_text(server, "kicad://board/summary")
     board_netlist = await read_resource_text(server, "kicad://board/netlist")
     quality_gate_resource = await read_resource_text(server, "kicad://project/quality_gate")
     fix_queue_resource = await read_resource_text(server, "kicad://project/fix_queue")
     connectivity_resource = await read_resource_text(server, "kicad://schematic/connectivity")
     placement_resource = await read_resource_text(server, "kicad://board/placement_quality")
+    placement_gate_resource = await read_resource_text(server, "kicad://gate/placement")
     first_pcb = await get_prompt_text(
         server,
         "first_pcb",
@@ -143,12 +149,15 @@ async def test_project_resources_prompts_and_library_surface(
     release_checklist = await get_prompt_text(server, "manufacturing_release_checklist", {})
 
     assert "Project directory:" in project_resource
+    assert "Project design spec resolution:" in project_spec_resource
+    assert "Project next action:" in project_next_action_resource
     assert "Board summary" in board_summary
     assert "(kicad_pcb)" in board_netlist
     assert "Project quality gate:" in quality_gate_resource
     assert "Project fix queue" in fix_queue_resource
     assert "Schematic connectivity quality gate:" in connectivity_resource
     assert "Placement score:" in placement_resource
+    assert "Placement quality gate:" in placement_gate_resource
     assert "20x20" in first_pcb
     assert "schematic capture" in schematic_to_pcb.lower()
     assert "manufacturing release pass" in manufacturing.lower()
@@ -157,13 +166,31 @@ async def test_project_resources_prompts_and_library_surface(
     assert "broader profile" in manufacturing
     assert "closed-loop design review" in design_review_loop.lower()
     assert "kicad://project/fix_queue" in design_review_loop
-    assert "project_get_design_intent" in design_review_loop
+    assert "project_get_design_spec" in design_review_loop
     assert "source of truth" in fix_blocking_issues.lower()
     assert "project_set_design_intent" in fix_blocking_issues
+    assert "project_validate_design_spec" in fix_blocking_issues
     assert "gated handoff" in release_checklist.lower()
     assert "export_manufacturing_package" in release_checklist
     assert "pcb_transfer_quality_gate" in release_checklist
     assert "broader profile" in release_checklist
+
+    design_spec = await call_tool_payload(server, "project_get_design_spec", {})
+    design_spec_validation = await call_tool_payload(server, "project_validate_design_spec", {})
+    next_action = await call_tool_payload(server, "project_get_next_action", {})
+    placement_report = await call_tool_payload(server, "pcb_placement_quality_report", {})
+    gate_report = await call_tool_payload(server, "project_quality_gate_report", {})
+
+    assert isinstance(design_spec, dict)
+    assert design_spec["resolved"]["connector_refs"] == []
+    assert isinstance(design_spec_validation, dict)
+    assert design_spec_validation["valid"] is True
+    assert isinstance(next_action, dict)
+    assert next_action["status"] in {"PASS", "FAIL", "BLOCKED"}
+    assert isinstance(placement_report, dict)
+    assert placement_report["status"] in {"PASS", "BLOCKED"}
+    assert isinstance(gate_report, dict)
+    assert gate_report["status"] in {"PASS", "FAIL", "BLOCKED"}
 
     await call_tool_text(
         server,

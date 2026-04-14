@@ -770,6 +770,7 @@ def _parse_board_footprint_blocks(content: str) -> dict[str, dict[str, Any]]:
             block, length = _extract_block(content, cursor)
             if block:
                 ref_match = re.search(rf'\(property\s+"Reference"\s+{STRING_PATTERN}', block)
+                value_match = re.search(rf'\(property\s+"Value"\s+{STRING_PATTERN}', block)
                 name_match = re.match(rf"\(footprint\s+{STRING_PATTERN}", block.lstrip())
                 if ref_match and name_match:
                     root_at = _parse_root_at(block)
@@ -780,6 +781,7 @@ def _parse_board_footprint_blocks(content: str) -> dict[str, dict[str, Any]]:
                         "block": block,
                         "start": cursor,
                         "end": cursor + length,
+                        "value": value_match.group(1) if value_match else "",
                         "x_mm": root_at[0] if root_at else None,
                         "y_mm": root_at[1] if root_at else None,
                         "rotation": root_at[2] if root_at else 0,

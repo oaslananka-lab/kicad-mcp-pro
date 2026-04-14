@@ -35,6 +35,10 @@ These tools persist the engineering assumptions that intent-aware placement chec
 
 - `project_set_design_intent()`
 - `project_get_design_intent()`
+- `project_get_design_spec()`
+- `project_infer_design_spec()`
+- `project_validate_design_spec()`
+- `project_get_next_action()`
 
 Current intent fields:
 
@@ -54,8 +58,11 @@ The MCP resource surface mirrors the current review state so an agent can iterat
 
 - `kicad://project/quality_gate`
 - `kicad://project/fix_queue`
+- `kicad://project/spec`
+- `kicad://project/next_action`
 - `kicad://schematic/connectivity`
 - `kicad://board/placement_quality`
+- `kicad://gate/{gate_name}`
 
 ## Prompt Workflows
 

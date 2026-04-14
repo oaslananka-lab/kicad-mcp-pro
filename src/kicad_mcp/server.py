@@ -46,14 +46,15 @@ def build_server(profile: str | None = None) -> FastMCP:
         name="kicad-mcp-pro",
         instructions=(
             "KiCad MCP Pro Server for project setup, schematic capture, PCB editing, "
-            "validation, and manufacturing export. Start with kicad_get_version() "
-            "and kicad_set_project()."
+            "validation, and manufacturing export. Start with kicad_get_version(), "
+            "kicad_set_project(), and project_get_design_spec()."
         ),
         host=cfg.host,
         port=cfg.port,
         streamable_http_path=cfg.mount_path,
         mount_path=cfg.mount_path,
         log_level=cfg.log_level,
+        json_response=True,
     )
 
     router.register(server)

@@ -78,16 +78,20 @@ Run a closed-loop design review instead of trusting a single build pass.
 
 1. Inspect the current context:
    - `kicad://project/info`
+   - `kicad://project/spec`
    - `kicad://project/quality_gate`
    - `kicad://project/fix_queue`
+   - `kicad://project/next_action`
    - `kicad://schematic/connectivity`
    - `kicad://board/placement_quality`
-   - `project_get_design_intent()`
+   - `project_get_design_spec()`
 2. Call the blocking gate tools directly when you need fresh detail:
    - `project_quality_gate()`
+   - `project_quality_gate_report()`
    - `schematic_connectivity_gate()`
    - `pcb_transfer_quality_gate()`
    - `pcb_score_placement()`
+   - `pcb_placement_quality_report()`
 3. Fix the highest-severity blocking issue first.
 4. Re-run the relevant gates after every fix.
 5. Repeat until the full project gate is `PASS`.
@@ -102,12 +106,15 @@ Run a closed-loop design review instead of trusting a single build pass.
 Use the project fix queue as the source of truth for what to fix next.
 
 1. Read `kicad://project/fix_queue`.
-2. Pick item 1 unless a more severe blocker appears after re-running a gate.
-3. Use the suggested tool on that line to inspect or repair the issue.
-4. If the blocker is intent-aware, refresh `project_get_design_intent()` or update it with
-   `project_set_design_intent()` before moving footprints again.
-5. Re-run `project_quality_gate()` after the fix.
-6. Stop only when the queue says there are no blocking issues left.
+2. Read `kicad://project/next_action`.
+3. Pick the first blocking item unless `project_get_next_action()` surfaces
+   a higher-priority blocker.
+4. Use the suggested tool on that line to inspect or repair the issue.
+5. If the blocker is spec-aware, refresh `project_get_design_spec()` or update it with
+   `project_set_design_intent()`, then verify with `project_validate_design_spec()`
+   before moving footprints again.
+6. Re-run `project_quality_gate()` after the fix.
+7. Stop only when the queue says there are no blocking issues left.
 """.strip()
         return [TextContent(type="text", text=text)]
 
