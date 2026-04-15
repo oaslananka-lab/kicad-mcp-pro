@@ -561,6 +561,28 @@ def _normalize_board_content(content: str) -> str:
     return content
 
 
+def run_auto_refill_zones() -> str:
+    """Module-level zone refill — callable from project_auto_fix_loop.
+
+    Tries to refill all copper zones via KiCad IPC.  Gracefully returns an
+    informational message (not an exception) when no KiCad session is running,
+    so the auto-fix loop can continue to the next gate without aborting.
+    """
+    from ..connection import KiCadConnectionError, get_board as _get_board
+
+    try:
+        board = _get_board()
+        board.refill_zones(block=True, max_poll_seconds=60.0)
+        return "Zones refilled successfully."
+    except KiCadConnectionError:
+        return (
+            "Zone refill skipped — KiCad is not running. "
+            "Open the PCB in KiCad and run Edit > Fill All Zones (B) manually."
+        )
+    except Exception as exc:
+        return f"Zone refill failed: {exc}"
+
+
 def _transactional_board_write(mutator: Callable[[str], str]) -> str:
     board_file = _get_pcb_file_for_sync()
     current = _normalize_board_content(board_file.read_text(encoding="utf-8", errors="ignore"))

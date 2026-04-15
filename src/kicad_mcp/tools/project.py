@@ -405,7 +405,7 @@ def _render_design_intent(intent: ProjectDesignIntent) -> str:
         lines.append(f"- Interfaces: {len(intent.interfaces)}")
         for iface in intent.interfaces[:10]:
             impedance = (
-                f"  {iface.impedance_target_ohm}Ω"
+                f"  {iface.impedance_target_ohm}ohm"
                 + (" diff" if iface.differential else "")
                 if iface.impedance_target_ohm is not None
                 else ""
@@ -997,36 +997,95 @@ def register(mcp: FastMCP) -> None:
     def project_auto_fix_loop(
         max_iterations: int = 5,
     ) -> AutoFixLoopPayload:
-        """Run the project quality gate and return a prioritised action plan.
+        """Run the project quality gate and automatically apply server-side fixes.
 
-        For each failing gate this tool:
-        1. Applies safe, server-side auto-fixes (zone refill, annotation) where available.
-        2. Returns a structured action list telling the agent which tool to call next.
+        Each iteration:
+        1. Evaluates all project quality gates.
+        2. For **auto-applicable** gates (annotation, zone refill) — calls the
+           underlying fix implementation directly on the server, then re-evaluates.
+        3. For gates requiring **agent action** — returns the tool name and
+           description so the agent can call it, then the agent must call this
+           tool again to continue.
 
-        The agent should call this tool after applying each recommended fix to track
-        progress.  When ``ready_for_release`` is True the design may proceed to
-        ``export_manufacturing_package()``.
+        The loop runs up to ``max_iterations`` times applying auto-fixes.  It
+        stops early when all gates pass or when no further auto-fix is possible
+        without agent involvement.
 
         Args:
-            max_iterations: Informational limit on how many fix cycles the agent
-                should attempt before escalating to a human. Does not affect this
-                single call.
+            max_iterations: Maximum number of auto-fix + re-evaluate cycles to
+                attempt before returning control to the agent (1–20).
         """
-        from .validation import _evaluate_project_gate
+        import importlib
+
+        from .validation import _evaluate_project_gate, _combined_status, GateOutcome
 
         max_iterations = max(1, min(max_iterations, 20))
-        outcomes = _evaluate_project_gate()
+        iterations_used = 0
+        auto_fix_log: list[str] = []
 
+        # ------------------------------------------------------------------ #
+        # Helper: resolve a "tools.module:function" import string to callable  #
+        # ------------------------------------------------------------------ #
+        def _resolve_callable(import_str: str):
+            if not import_str:
+                return None
+            try:
+                mod_path, func_name = import_str.rsplit(":", 1)
+                full_mod = f"kicad_mcp.{mod_path}"
+                mod = importlib.import_module(full_mod)
+                return getattr(mod, func_name, None)
+            except Exception:
+                return None
+
+        outcomes = _evaluate_project_gate()
+        iterations_used += 1
+
+        for _iter in range(max_iterations - 1):  # -1 because we already ran once above
+            # Find the first failing gate that has an auto-applicable fixer
+            applied_any = False
+            for outcome in outcomes:
+                if outcome.status == "PASS":
+                    continue
+                fixers = fixers_for_gate(outcome.name)
+                auto_fixer = next((f for f in fixers if f.auto_applicable), None)
+                if auto_fixer is None:
+                    continue
+                fn = _resolve_callable(auto_fixer.callable_import)
+                if fn is None:
+                    continue
+                try:
+                    fix_result = fn()
+                    auto_fix_log.append(
+                        f"[iter {iterations_used}] Auto-fixed '{outcome.name}' "
+                        f"via {auto_fixer.tool}: {fix_result}"
+                    )
+                    applied_any = True
+                except Exception as exc:
+                    auto_fix_log.append(
+                        f"[iter {iterations_used}] Auto-fix '{auto_fixer.tool}' "
+                        f"for '{outcome.name}' raised: {exc}"
+                    )
+
+            if not applied_any:
+                break  # Nothing left for the server to do — hand off to agent
+
+            # Re-evaluate after applying fixes
+            outcomes = _evaluate_project_gate()
+            iterations_used += 1
+
+            if all(o.status == "PASS" for o in outcomes):
+                break  # All gates green — done
+
+        # ------------------------------------------------------------------ #
+        # Build the final action list for the agent                           #
+        # ------------------------------------------------------------------ #
         actions: list[AutoFixAction] = []
         for outcome in outcomes:
             if outcome.status == "PASS":
                 continue
-
             fixers = fixers_for_gate(outcome.name)
-            # First auto-applicable fixer hint; second non-auto fixer for agent.
             auto_fixer = next((f for f in fixers if f.auto_applicable), None)
             agent_fixer = next((f for f in fixers if not f.auto_applicable), None)
-
             actions.append(
                 AutoFixAction(
                     gate=outcome.name,
@@ -1036,12 +1095,12 @@ def register(mcp: FastMCP) -> None:
                         auto_fixer.description if auto_fixer is not None else ""
                     ),
                     agent_tool=(
-                        (auto_fixer.tool if auto_fixer is not None else "")
-                        or (agent_fixer.tool if agent_fixer is not None else "")
+                        (agent_fixer.tool if agent_fixer is not None else "")
+                        or (auto_fixer.tool if auto_fixer is not None else "")
                     ),
                     agent_description=(
-                        (auto_fixer.description if auto_fixer is not None else "")
-                        or (agent_fixer.description if agent_fixer is not None else "")
+                        (agent_fixer.description if agent_fixer is not None else "")
+                        or (auto_fixer.description if auto_fixer is not None else "")
                     ),
                 )
             )
@@ -1049,19 +1108,27 @@ def register(mcp: FastMCP) -> None:
         remaining = sum(1 for a in actions if not a.auto_fixed)
         ready = len(actions) == 0
 
-        lines = [f"project_auto_fix_loop (max_iterations={max_iterations}):"]
+        lines = [
+            f"project_auto_fix_loop: {iterations_used}/{max_iterations} iteration(s) used."
+        ]
+        if auto_fix_log:
+            lines.append("Server-side auto-fixes applied:")
+            lines.extend(f"  {entry}" for entry in auto_fix_log)
         if ready:
-            lines.append("- Status: PASS — all gates pass. Ready for manufacturing release.")
+            lines.append("Status: PASS — all gates pass. Ready for manufacturing release.")
         else:
-            lines.append(f"- Status: {len(actions)} gate(s) failing, {remaining} need agent action.")
+            lines.append(
+                f"Status: {len(actions)} gate(s) still failing "
+                f"({remaining} require agent action)."
+            )
             for action in actions:
-                prefix = "AUTO-FIXED" if action.auto_fixed else "AGENT"
-                detail = action.auto_fix_description if action.auto_fixed else (
-                    f"call {action.agent_tool}() — {action.agent_description}"
+                lines.append(
+                    f"  [AGENT] {action.gate}: call {action.agent_tool}() "
+                    f"— {action.agent_description}"
                 )
-                lines.append(f"  [{prefix}] {action.gate}: {detail}")
-
-        from .validation import _combined_status, GateOutcome
+            lines.append(
+                "After applying the recommended tool, call project_auto_fix_loop() again."
+            )
 
         combined = _combined_status(
             [
@@ -1078,7 +1145,7 @@ def register(mcp: FastMCP) -> None:
         return AutoFixLoopPayload(
             text="\n".join(lines),
             gate_status=combined,
-            iterations_used=1,
+            iterations_used=iterations_used,
             actions=actions,
             remaining_issues=remaining,
             ready_for_release=ready,
@@ -1127,7 +1194,7 @@ def register(mcp: FastMCP) -> None:
                 fixers = fixers_for_gate(outcome.name)
                 hint = fixers[0].tool if fixers else "project_quality_gate"
                 lines.append(f"- [{outcome.status}] {outcome.name}: {outcome.summary}")
-                lines.append(f"  → Suggested: {hint}()")
+                lines.append(f"  -> Suggested: {hint}()")
         else:
             lines.append("All gates PASS — ready for export_manufacturing_package().")
 

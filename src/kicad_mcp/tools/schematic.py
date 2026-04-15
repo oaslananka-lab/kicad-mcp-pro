@@ -52,6 +52,24 @@ AUTO_LAYOUT_ROW_SPACING_MM = 17.78
 AUTO_LAYOUT_COLUMNS = 4
 DEFAULT_SHEET_WIDTH_MM = 30.48
 DEFAULT_SHEET_HEIGHT_MM = 20.32
+
+# KiCad paper sizes (landscape, mm).  Used for sheet-boundary clamping.
+PAPER_SIZES_MM: dict[str, tuple[float, float]] = {
+    "A4":     (297.0,  210.0),
+    "A3":     (420.0,  297.0),
+    "A2":     (594.0,  420.0),
+    "A1":     (841.0,  594.0),
+    "A0":     (1189.0, 841.0),
+    "A":      (279.4,  215.9),   # ANSI A (letter)
+    "B":      (431.8,  279.4),   # ANSI B (tabloid)
+    "C":      (558.8,  431.8),
+    "D":      (863.6,  558.8),
+    "E":      (1117.6, 863.6),
+    "USLetter": (279.4, 215.9),
+    "USLegal":  (355.6, 215.9),
+}
+# Margin inside the sheet border kept free of symbols.
+_SHEET_MARGIN_MM = 15.0
 NETLIST_LAYOUT_COLUMN_SPACING_MM = 38.1
 NETLIST_LAYOUT_ROW_SPACING_MM = 35.56
 NETLIST_LABEL_OFFSET_MM = 10.16
@@ -628,6 +646,313 @@ def _auto_layout_point(index: int) -> tuple[float, float]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Spatial awareness helpers (v2.1.0)
+# ---------------------------------------------------------------------------
+
+# Approximate bounding box half-sizes for common symbol categories (mm).
+# These are heuristic estimates; KiCad doesn't expose symbol extents via the
+# file-level API, so we size conservatively.
+_SYMBOL_HALF_W_MM = 10.16   # ~4 pins wide  (2 × 2.54 × 2)
+_SYMBOL_HALF_H_MM = 7.62    # ~3 pins tall
+
+# ---------------------------------------------------------------------------
+# Footprint validation (v2.1.1)
+# ---------------------------------------------------------------------------
+
+# KiCad system footprint search paths (platform-ordered)
+_KICAD_FP_SEARCH_PATHS: list[Path] = [
+    Path("C:/Program Files/KiCad/10.0/share/kicad/footprints"),
+    Path("C:/Program Files/KiCad/9.0/share/kicad/footprints"),
+    Path("C:/Program Files/KiCad/8.0/share/kicad/footprints"),
+    Path("/usr/share/kicad/footprints"),
+    Path("/usr/local/share/kicad/footprints"),
+    Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints"),
+]
+
+
+def _fp_search_roots() -> list[Path]:
+    """Return existing KiCad footprint roots (system + project custom)."""
+    roots = [p for p in _KICAD_FP_SEARCH_PATHS if p.exists()]
+    # Also check project-local .pretty dirs
+    try:
+        cfg = get_config()
+        if cfg.project_dir:
+            for pretty in cfg.project_dir.rglob("*.pretty"):
+                if pretty.is_dir():
+                    roots.append(pretty.parent)
+    except Exception:
+        pass
+    return roots
+
+
+def _validate_footprint(footprint: str) -> str | None:
+    """Return a warning string if the footprint cannot be found in any known library.
+
+    Returns None if the footprint is valid (or empty/not provided).
+    Format expected: ``LibraryName:FootprintName``
+    """
+    if not footprint or ":" not in footprint:
+        if footprint:
+            return (
+                f"Footprint '{footprint}' has invalid format — expected 'Library:Name'. "
+                "Symbol was placed but footprint assignment may fail in KiCad."
+            )
+        return None
+
+    lib, name = footprint.split(":", 1)
+    roots = _fp_search_roots()
+    if not roots:
+        return None  # Can't validate without knowing the path — don't block
+
+    for root in roots:
+        candidate = root / f"{lib}.pretty" / f"{name}.kicad_mod"
+        if candidate.exists():
+            return None  # Found — valid
+
+    # Not found anywhere; suggest closest alternative
+    suggestions: list[str] = []
+    for root in roots:
+        lib_dir = root / f"{lib}.pretty"
+        if lib_dir.exists():
+            # Library exists but footprint name wrong — suggest similar names
+            mods = list(lib_dir.glob("*.kicad_mod"))
+            name_lower = name.lower()
+            close = [m.stem for m in mods if name_lower in m.stem.lower()][:3]
+            if close:
+                suggestions = [f"{lib}:{s}" for s in close]
+            break
+
+    hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+    return (
+        f"WARNING: Footprint '{footprint}' not found in KiCad library.{hint} "
+        "Symbol placed — fix footprint in KiCad Properties dialog."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Functional category classifier (v2.1.1)
+# ---------------------------------------------------------------------------
+
+# Zone layout — (start_col, start_row) for each functional group.
+#
+# A4 landscape = 297 × 210 mm.  Usable columns with origin=50.8 and
+# spacing=25.4: (297 - 50.8 - 15 margin) / 25.4 ≈ 9.1 → max col 8.
+# Usable rows: (210 - 50.8 - 15) / 17.78 ≈ 8.1 → max row 7.
+# All zones start at col ≤ 6 so they (+ max 3 sub-cols) stay within col 8.
+#
+#   col →    0-2          3-5          6-8
+#   row 0:   connectors   MCU          UI / LED / SW
+#   row 3:   power IC     sensors/IC   protection
+#   row 5:   power pass   passives     transistors / filter
+#   row 7:   test points  ---          ---
+_FUNCTIONAL_ZONES: dict[str, tuple[int, int]] = {
+    "connector":    (0, 0),   # Left — connectors, headers
+    "mcu":          (3, 0),   # Centre-left — main processor
+    "ui":           (6, 0),   # Right — LED, buzzer, button, switch
+    "power_ic":     (0, 3),   # Left-mid — LDO, buck, PMU
+    "sensor":       (3, 3),   # Centre-mid — sensors
+    "ic":           (3, 3),   # Generic IC — shares sensor zone
+    "protection":   (6, 3),   # Right-mid — ESD, TVS, fuse, diode
+    "power_pass":   (0, 5),   # Left-lower — bulk caps, ferrite, input
+    "passive_cap":  (2, 5),   # Lower-centre-left — decoupling caps
+    "passive_res":  (4, 5),   # Lower-centre — resistors
+    "transistor":   (6, 5),   # Right-lower — MOSFET, BJT
+    "filter":       (6, 6),   # Right-bottom — ferrite, LC filter
+    "testpoint":    (0, 7),   # Bottom-left — test points
+    "misc":         (5, 7),   # Bottom-right — anything else
+}
+
+# Maximum sub-columns per zone before wrapping to the next sub-row within it.
+_ZONE_MAX_COLS = 3
+
+
+def _classify_symbol(ref: str, value: str, lib_id: str) -> str:
+    """Return a functional category string for a symbol."""
+    prefix = "".join(c for c in ref if c.isalpha()).upper().rstrip("0123456789")
+    lib_up = lib_id.upper()
+    val_up = value.upper()
+
+    # Connectors / headers
+    if prefix in ("J", "CN", "P", "X", "SV"):
+        return "connector"
+
+    # Test points
+    if prefix in ("TP", "TEST"):
+        return "testpoint"
+
+    # Switches / buttons
+    if prefix in ("SW", "BTN", "BT", "S"):
+        return "ui"
+
+    # LEDs (RGB, indicator)
+    if prefix in ("LED", "D_LED"):
+        return "ui"
+
+    # Buzzers
+    if prefix in ("BZ", "SP", "LS"):
+        return "ui"
+
+    # Fuses / polyfuse
+    if prefix in ("F", "FU"):
+        return "protection"
+
+    # Ferrite beads / inductors
+    if prefix in ("FB", "L", "FL"):
+        return "filter"
+
+    # Capacitors
+    if prefix == "C":
+        return "passive_cap"
+
+    # Resistors
+    if prefix == "R":
+        return "passive_res"
+
+    # Transistors
+    if prefix in ("Q", "T"):
+        return "transistor"
+
+    # Diodes — split by function
+    if prefix == "D":
+        if any(k in val_up for k in ("USBLC", "ESD", "TVS", "PRTR", "BAT", "SCHOTTKY")):
+            return "protection"
+        if any(k in val_up for k in ("1N4148", "LED")):
+            return "protection"
+        return "protection"
+
+    # ICs — further classify
+    if prefix == "U":
+        if any(k in lib_up for k in ("ESP32", "STM32", "ATMEGA", "NRF5", "RP2", "PIC", "RF_MODULE")):
+            return "mcu"
+        if any(k in lib_up for k in ("SENSOR", "ADXL", "BME", "BMP", "BMI", "MPU", "ICM", "LIS",
+                                      "VEML", "OPT", "SPH", "ICS")):
+            return "sensor"
+        if any(k in lib_up for k in ("REGUL", "LDO", "BUCK", "BOOST", "AP2112", "AMS", "MIC55",
+                                      "AP3", "TPS", "LM", "XC6")):
+            return "power_ic"
+        if any(k in val_up for k in ("LDO", "REGUL", "AP2112", "AMS1117", "LM317", "XC6")):
+            return "power_ic"
+        if any(k in lib_up for k in ("PROTECTION", "USBLC", "PRTR", "ESD")):
+            return "protection"
+        return "ic"
+
+    return "misc"
+
+
+def _estimate_occupied_cells(
+    symbols: list[dict[str, Any]],
+    cell_w: float = AUTO_LAYOUT_COLUMN_SPACING_MM,
+    cell_h: float = AUTO_LAYOUT_ROW_SPACING_MM,
+) -> set[tuple[int, int]]:
+    """Return the set of grid cells already occupied by placed symbols.
+
+    Each symbol is assumed to occupy a rectangle of cell_w × cell_h mm
+    centred on its (x, y) position.  We mark the grid cell of the centre
+    plus the four neighbouring cells as occupied to give a clearance buffer.
+    """
+    occupied: set[tuple[int, int]] = set()
+    for sym in symbols:
+        x = sym.get("x", sym.get("x_mm", 0.0))
+        y = sym.get("y", sym.get("y_mm", 0.0))
+        if x is None or y is None:
+            continue
+        col = int(round((float(x) - AUTO_LAYOUT_ORIGIN_X_MM) / cell_w))
+        row = int(round((float(y) - AUTO_LAYOUT_ORIGIN_Y_MM) / cell_h))
+        for dc in (-1, 0, 1):
+            for dr in (-1, 0, 1):
+                occupied.add((col + dc, row + dr))
+    return occupied
+
+
+def _sheet_usable_cols(
+    paper: str = "A4",
+    cell_w: float = AUTO_LAYOUT_COLUMN_SPACING_MM,
+) -> int:
+    """Return the max column index that fits inside the given paper size."""
+    w, _ = PAPER_SIZES_MM.get(paper, PAPER_SIZES_MM["A4"])
+    usable_w = w - AUTO_LAYOUT_ORIGIN_X_MM - _SHEET_MARGIN_MM
+    return max(1, int(usable_w / cell_w))
+
+
+def _sheet_usable_rows(
+    paper: str = "A4",
+    cell_h: float = AUTO_LAYOUT_ROW_SPACING_MM,
+) -> int:
+    """Return the max row index that fits inside the given paper size."""
+    _, h = PAPER_SIZES_MM.get(paper, PAPER_SIZES_MM["A4"])
+    usable_h = h - AUTO_LAYOUT_ORIGIN_Y_MM - _SHEET_MARGIN_MM
+    return max(1, int(usable_h / cell_h))
+
+
+def _read_sheet_paper(sch_file: Path) -> str:
+    """Read the paper size keyword from a .kicad_sch file, defaulting to 'A4'."""
+    try:
+        text = sch_file.read_text(encoding="utf-8", errors="replace")
+        m = re.search(r'\(paper\s+"([^"]+)"', text)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return "A4"
+
+
+def _next_free_cell(
+    occupied: set[tuple[int, int]],
+    cell_w: float = AUTO_LAYOUT_COLUMN_SPACING_MM,
+    cell_h: float = AUTO_LAYOUT_ROW_SPACING_MM,
+    start_col: int = 0,
+    start_row: int = 0,
+    max_cols: int | None = None,
+    paper: str = "A4",
+) -> tuple[float, float]:
+    """Return the (x_mm, y_mm) of the next unoccupied grid cell.
+
+    Scans row-major order starting at (start_col, start_row).
+    Column count is clamped to the usable width of ``paper`` so symbols
+    never overflow the sheet boundary.
+    """
+    if max_cols is None:
+        max_cols = _sheet_usable_cols(paper, cell_w)
+
+    col, row = start_col, start_row
+    # Safety: if start_col is beyond the sheet, wrap it back
+    if col >= max_cols:
+        col = 0
+
+    while True:
+        if (col, row) not in occupied:
+            occupied.add((col, row))
+            x = AUTO_LAYOUT_ORIGIN_X_MM + col * cell_w
+            y = AUTO_LAYOUT_ORIGIN_Y_MM + row * cell_h
+            return x, y
+        col += 1
+        if col >= max_cols:
+            col = 0
+            row += 1
+
+
+def _point_near_existing(
+    x: float,
+    y: float,
+    existing: list[dict[str, Any]],
+    min_dist_mm: float = _SYMBOL_HALF_W_MM,
+) -> str | None:
+    """Return a warning string if (x, y) is too close to any existing symbol, else None."""
+    for sym in existing:
+        sx = float(sym.get("x", sym.get("x_mm", 0.0)) or 0.0)
+        sy = float(sym.get("y", sym.get("y_mm", 0.0)) or 0.0)
+        dist = math.hypot(x - sx, y - sy)
+        if dist < min_dist_mm:
+            ref = sym.get("reference", "?")
+            return (
+                f"WARNING: coordinate ({x:.2f}, {y:.2f}) is {dist:.1f} mm from '{ref}' "
+                f"at ({sx:.2f}, {sy:.2f}) — symbols may overlap. "
+                f"Use sch_find_free_placement to get a safe coordinate."
+            )
+    return None
+
+
 def _netlist_layout_point(index: int) -> tuple[float, float]:
     column = index % AUTO_LAYOUT_COLUMNS
     row = index // AUTO_LAYOUT_COLUMNS
@@ -814,14 +1139,39 @@ def _apply_netlist_auto_layout(
 
     refs = [str(symbol["reference"]) for symbol in laid_out_symbols if symbol.get("reference")]
     ordered_refs = _order_refs_by_connectivity(refs, nets)
-    generated_positions = {
-        reference: _netlist_layout_point(index) for index, reference in enumerate(ordered_refs)
-    }
+
+    # Use occupancy grid to avoid symbol collisions in netlist layout too.
+    netlist_occupied: set[tuple[int, int]] = set()
+    # Pre-fill from symbols that already have explicit positions.
+    for symbol in laid_out_symbols:
+        if _has_point(symbol):
+            sx = _coord_value(symbol, "x") or 0.0
+            sy = _coord_value(symbol, "y") or 0.0
+            col = int(round((sx - AUTO_LAYOUT_ORIGIN_X_MM) / NETLIST_LAYOUT_COLUMN_SPACING_MM))
+            row = int(round((sy - AUTO_LAYOUT_ORIGIN_Y_MM) / NETLIST_LAYOUT_ROW_SPACING_MM))
+            netlist_occupied.add((col, row))
+
+    generated_positions: dict[str, tuple[float, float]] = {}
+    for reference in ordered_refs:
+        x, y = _next_free_cell(
+            netlist_occupied,
+            cell_w=NETLIST_LAYOUT_COLUMN_SPACING_MM,
+            cell_h=NETLIST_LAYOUT_ROW_SPACING_MM,
+        )
+        generated_positions[reference] = (x, y)
+
     symbol_positions: dict[str, tuple[float, float]] = {}
     for symbol in laid_out_symbols:
         reference = str(symbol.get("reference", ""))
         if not _has_point(symbol):
-            x, y = generated_positions.get(reference, _netlist_layout_point(len(symbol_positions)))
+            if reference in generated_positions:
+                x, y = generated_positions[reference]
+            else:
+                x, y = _next_free_cell(
+                    netlist_occupied,
+                    cell_w=NETLIST_LAYOUT_COLUMN_SPACING_MM,
+                    cell_h=NETLIST_LAYOUT_ROW_SPACING_MM,
+                )
             _set_point(symbol, x, y)
         point = (_coord_value(symbol, "x"), _coord_value(symbol, "y"))
         if point[0] is not None and point[1] is not None and reference:
@@ -887,27 +1237,38 @@ def _apply_basic_auto_layout(
     laid_out_powers = [dict(item) for item in power_symbols]
     laid_out_labels = [dict(item) for item in labels]
 
-    for index, symbol in enumerate(laid_out_symbols):
-        x, y = _auto_layout_point(index)
+    # Use occupancy grid so every symbol gets a unique, non-overlapping slot.
+    occupied: set[tuple[int, int]] = set()
+
+    for symbol in laid_out_symbols:
+        x, y = _next_free_cell(occupied)
         symbol["x_mm"] = x
         symbol["y_mm"] = y
         symbol.setdefault("snap_to_grid", True)
 
     symbol_rows = max(1, math.ceil(max(len(laid_out_symbols), 1) / AUTO_LAYOUT_COLUMNS))
-    gnd_y = AUTO_LAYOUT_ORIGIN_Y_MM + (symbol_rows * AUTO_LAYOUT_ROW_SPACING_MM)
-    positive_y = AUTO_LAYOUT_ORIGIN_Y_MM - AUTO_LAYOUT_ROW_SPACING_MM
+    gnd_row = symbol_rows + 1
+    positive_row = -1  # above origin row
+
+    pwr_occupied_gnd: set[tuple[int, int]] = set()
+    pwr_occupied_pos: set[tuple[int, int]] = set()
+
     for index, power_symbol in enumerate(laid_out_powers):
-        x, _ = _auto_layout_point(index)
         name = str(power_symbol.get("name", "")).upper()
+        if name.startswith("GND"):
+            x, y = _next_free_cell(pwr_occupied_gnd, start_row=gnd_row)
+        else:
+            x, y = _next_free_cell(pwr_occupied_pos, start_row=positive_row)
         power_symbol["x_mm"] = x
-        power_symbol["y_mm"] = gnd_y if name.startswith("GND") else positive_y
+        power_symbol["y_mm"] = y
         power_symbol.setdefault("snap_to_grid", True)
 
-    label_y = gnd_y + AUTO_LAYOUT_ROW_SPACING_MM
-    for index, label in enumerate(laid_out_labels):
-        x, _ = _auto_layout_point(index)
+    label_row = gnd_row + 2
+    lbl_occupied: set[tuple[int, int]] = set()
+    for label in laid_out_labels:
+        x, y = _next_free_cell(lbl_occupied, start_row=label_row)
         label["x_mm"] = x
-        label["y_mm"] = label_y
+        label["y_mm"] = y
         label.setdefault("snap_to_grid", True)
 
     return laid_out_symbols, laid_out_powers, laid_out_labels
@@ -996,6 +1357,47 @@ def _get_schematic_file() -> Path:
             "No schematic file is configured. Call kicad_set_project() or set KICAD_MCP_SCH_FILE."
         )
     return cfg.sch_file
+
+
+def run_auto_annotate(start_number: int = 1, order: str = "alpha") -> str:
+    """Module-level annotation runner — callable from project_auto_fix_loop.
+
+    Renumbers all schematic references sequentially without requiring an MCP
+    tool invocation.  Returns a human-readable summary string.
+    """
+    from ..models.schematic import AnnotateInput
+
+    sch_file = _get_schematic_file()
+    payload = AnnotateInput(start_number=start_number, order=order)
+    data = parse_schematic_file(sch_file)
+    symbols = list(data["symbols"])
+    if payload.order == "sheet":
+        symbols.sort(key=lambda item: (item["y"], item["x"]))
+    else:
+        symbols.sort(key=lambda item: item["reference"])
+
+    counters: dict[str, int] = {}
+    updates: list[tuple[str, str]] = []
+    for symbol in symbols:
+        prefix_match = re.match(r"([A-Za-z#]+)", symbol["reference"])
+        prefix = prefix_match.group(1) if prefix_match else "U"
+        counters.setdefault(prefix, payload.start_number)
+        new_reference = f"{prefix}{counters[prefix]}"
+        counters[prefix] += 1
+        updates.append((symbol["reference"], new_reference))
+
+    def mutator(current: str) -> str:
+        updated = current
+        for old_ref, new_ref in updates:
+            updated = updated.replace(
+                f'(property "Reference" "{old_ref}"',
+                f'(property "Reference" "{new_ref}"',
+                1,
+            )
+        return updated
+
+    transactional_write(mutator)
+    return f"Auto-annotated {len(updates)} symbol(s)."
 
 
 def _get_symbol_library_dir() -> Path:
@@ -2226,10 +2628,15 @@ def register(mcp: FastMCP) -> None:
             )
 
         sch_file = _get_schematic_file()
-        root_uuid = parse_schematic_file(sch_file)["uuid"] or new_uuid()
+        sch_data = parse_schematic_file(sch_file)
+        root_uuid = sch_data["uuid"] or new_uuid()
         cfg = get_config()
         project_name = cfg.project_file.stem if cfg.project_file is not None else "KiCadMCP"
         lib_id = f"{payload.library}:{payload.symbol_name}"
+
+        # Çakışma uyarısı — mevcut sembollerle çarpışıyor mu?
+        all_existing = sch_data["symbols"] + sch_data["power_symbols"]
+        overlap_warning = _point_near_existing(symbol_x, symbol_y, all_existing)
 
         def mutator(current: str) -> str:
             updated = current
@@ -2256,7 +2663,9 @@ def register(mcp: FastMCP) -> None:
 
         transactional_write(mutator)
         result = _reload_schematic()
-        return f"{result}\n{snap_note}" if snap_note else result
+        fp_warning = _validate_footprint(payload.footprint or "")
+        parts = [p for p in [result, snap_note, overlap_warning, fp_warning] if p]
+        return "\n".join(parts)
 
     @mcp.tool()
     def sch_add_wire(
@@ -2477,13 +2886,24 @@ def register(mcp: FastMCP) -> None:
         snap_to_grid: bool = True,
         auto_layout: bool = False,
         ) -> str:
-        """Build a schematic from structured symbol, wire, and label inputs.
+        """Build (overwrite) the active schematic from structured symbol, wire, and label inputs.
 
-        Coordinates are snapped to the 2.54 mm grid by default.
-        Set auto_layout=True to place symbols in a readable grid. If nets are provided,
-        the layout is connection-aware and generates Manhattan wire segments from symbol pins.
-        Nets that cannot resolve to at least two routable endpoints raise a clear error instead
-        of silently producing a disconnected label-only schematic.
+        IMPORTANT: This tool **replaces** the entire schematic content.  Any symbols
+        already placed in the schematic will be lost.  To add symbols to an existing
+        schematic without erasing it use ``sch_add_symbol`` / ``sch_add_wire`` /
+        ``sch_add_label`` instead.
+
+        Coordinates are snapped to the 2.54 mm grid by default.  When no coordinates
+        are provided for a symbol, set ``auto_layout=True`` so the placement engine
+        assigns non-overlapping positions automatically.  If nets are also provided
+        the layout is connection-aware and generates Manhattan wire segments from
+        symbol pins.  Nets that cannot resolve to at least two routable endpoints
+        raise a clear error instead of silently producing a disconnected schematic.
+
+        Recommended workflow:
+          1. Call ``sch_find_free_placement(count=N)`` to obtain safe coordinates.
+          2. Pass those coordinates in the ``symbols`` list.
+          3. OR set ``auto_layout=True`` and omit coordinates entirely.
         """
         (
             validated_symbols,
@@ -3068,7 +3488,12 @@ def register(mcp: FastMCP) -> None:
         symbol_list: list[str] | None = None,
         strategy: str = "cluster",
     ) -> str:
-        """Auto-place selected references using deterministic cluster, linear, or star layouts."""
+        """Auto-place selected references using deterministic cluster, linear, or star layouts.
+
+        Unlike the legacy behaviour, this version reads all already-placed symbols
+        first and avoids placing new symbols on top of them.  Fixed/already-placed
+        symbols that are not in ``symbol_list`` are treated as immovable obstacles.
+        """
         payload = AutoPlaceSymbolsInput(symbol_list=symbol_list or [], strategy=strategy)
         sch_file = _get_schematic_file()
         try:
@@ -3081,15 +3506,24 @@ def register(mcp: FastMCP) -> None:
             )
             return f"Could not load the active schematic for auto-placement: {exc}"
 
+        sch_data = parse_schematic_file(sch_file)
+        all_syms = sch_data["symbols"] + sch_data["power_symbols"]
+
         requested = payload.symbol_list or [
-            str(symbol["reference"]) for symbol in parse_schematic_file(sch_file)["symbols"]
+            str(sym["reference"]) for sym in sch_data["symbols"]
         ]
         if not requested:
             return "The active schematic contains no symbols to auto-place."
 
+        requested_set = set(requested)
+
+        # Symbols NOT being moved are fixed obstacles.
+        fixed_syms = [s for s in all_syms if str(s.get("reference", "")) not in requested_set]
+        occupied = _estimate_occupied_cells(fixed_syms)
+
         placed = 0
         missing: list[str] = []
-        radius_mm = AUTO_LAYOUT_COLUMN_SPACING_MM
+        radius_mm = AUTO_LAYOUT_COLUMN_SPACING_MM * 2
         center_x = AUTO_LAYOUT_ORIGIN_X_MM + AUTO_LAYOUT_COLUMN_SPACING_MM
         center_y = AUTO_LAYOUT_ORIGIN_Y_MM + AUTO_LAYOUT_ROW_SPACING_MM
 
@@ -3100,18 +3534,32 @@ def register(mcp: FastMCP) -> None:
                 continue
 
             if payload.strategy == "linear":
-                x = AUTO_LAYOUT_ORIGIN_X_MM + (index * AUTO_LAYOUT_COLUMN_SPACING_MM)
-                y = AUTO_LAYOUT_ORIGIN_Y_MM
+                # Find next free cell along a single row
+                x, y = _next_free_cell(
+                    occupied,
+                    start_col=index,
+                    start_row=0,
+                    max_cols=24,
+                )
             elif payload.strategy == "star":
                 if index == 0:
                     x = center_x
                     y = center_y
+                    # Mark centre cell occupied
+                    col = int(round((x - AUTO_LAYOUT_ORIGIN_X_MM) / AUTO_LAYOUT_COLUMN_SPACING_MM))
+                    row = int(round((y - AUTO_LAYOUT_ORIGIN_Y_MM) / AUTO_LAYOUT_ROW_SPACING_MM))
+                    occupied.add((col, row))
                 else:
                     angle = ((index - 1) / max(len(requested) - 1, 1)) * (2 * math.pi)
-                    x = center_x + (radius_mm * math.cos(angle))
-                    y = center_y + (radius_mm * math.sin(angle))
+                    raw_x = center_x + (radius_mm * math.cos(angle))
+                    raw_y = center_y + (radius_mm * math.sin(angle))
+                    # Snap to nearest free cell
+                    col = int(round((raw_x - AUTO_LAYOUT_ORIGIN_X_MM) / AUTO_LAYOUT_COLUMN_SPACING_MM))
+                    row = int(round((raw_y - AUTO_LAYOUT_ORIGIN_Y_MM) / AUTO_LAYOUT_ROW_SPACING_MM))
+                    x, y = _next_free_cell(occupied, start_col=col, start_row=row)
             else:
-                x, y = _auto_layout_point(index)
+                # cluster: row-major grid, skip occupied cells
+                x, y = _next_free_cell(occupied)
 
             snapped_x, snapped_y = _snap_point(x, y, True)
             component.move(snapped_x, snapped_y)
@@ -3130,8 +3578,420 @@ def register(mcp: FastMCP) -> None:
         result = _reload_schematic()
         missing_suffix = f" Missing: {', '.join(missing)}." if missing else ""
         return (
-            f"{result}\nAuto-placed {placed} symbol(s) using the {payload.strategy} strategy."
+            f"{result}\nAuto-placed {placed} symbol(s) using the {payload.strategy} strategy "
+            f"(overlap-aware, {len(fixed_syms)} fixed obstacle(s) respected)."
             f"{missing_suffix}"
+        )
+
+    # -----------------------------------------------------------------------
+    # Spatial awareness tools (v2.1.0)
+    # -----------------------------------------------------------------------
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_get_bounding_boxes() -> str:
+        """Return the estimated bounding box of every symbol in the active schematic.
+
+        Use this before calling sch_add_symbol or sch_build_circuit to understand
+        which areas of the schematic sheet are already occupied.  The bounding boxes
+        are heuristic estimates (KiCad does not expose exact extents via the file API)
+        but are conservative enough to avoid overlap in practice.
+
+        Returns:
+            A table of all symbols with their centre position and estimated
+            bounding-box corners (x_min, y_min, x_max, y_max) in mm, plus an
+            occupied-area summary.
+        """
+        sch_file = _get_schematic_file()
+        sch_data = parse_schematic_file(sch_file)
+        all_syms = sch_data["symbols"] + sch_data["power_symbols"]
+
+        if not all_syms:
+            return "The active schematic contains no symbols."
+
+        hw = _SYMBOL_HALF_W_MM
+        hh = _SYMBOL_HALF_H_MM
+
+        lines = [
+            f"Schematic bounding boxes ({len(all_syms)} symbols):",
+            f"{'Ref':<10} {'Value':<16} {'X':>8} {'Y':>8} {'X_min':>8} {'Y_min':>8} {'X_max':>8} {'Y_max':>8}",
+            "-" * 76,
+        ]
+        for sym in all_syms:
+            ref = str(sym.get("reference", "?"))
+            val = str(sym.get("value", ""))[:16]
+            x = float(sym.get("x", sym.get("x_mm", 0.0)) or 0.0)
+            y = float(sym.get("y", sym.get("y_mm", 0.0)) or 0.0)
+            lines.append(
+                f"{ref:<10} {val:<16} {x:>8.2f} {y:>8.2f} "
+                f"{x - hw:>8.2f} {y - hh:>8.2f} {x + hw:>8.2f} {y + hh:>8.2f}"
+            )
+
+        if all_syms:
+            all_x = [float(s.get("x", s.get("x_mm", 0.0)) or 0.0) for s in all_syms]
+            all_y = [float(s.get("y", s.get("y_mm", 0.0)) or 0.0) for s in all_syms]
+            lines += [
+                "",
+                f"Sheet occupied region: X=[{min(all_x) - hw:.1f}, {max(all_x) + hw:.1f}] "
+                f"Y=[{min(all_y) - hh:.1f}, {max(all_y) + hh:.1f}] mm",
+                f"Tip: use sch_find_free_placement to get safe coordinates for new symbols.",
+            ]
+
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_find_free_placement(
+        count: int = 1,
+        cell_width_mm: float = AUTO_LAYOUT_COLUMN_SPACING_MM,
+        cell_height_mm: float = AUTO_LAYOUT_ROW_SPACING_MM,
+    ) -> str:
+        """Find N collision-free placement coordinates for new symbols.
+
+        Reads the current schematic, builds an occupancy grid from all existing
+        symbols, and returns ``count`` coordinate pairs that do not overlap with
+        any placed symbol.  Call this before sch_add_symbol to get safe (x, y)
+        values.
+
+        Args:
+            count: Number of free coordinate slots to return (default 1, max 64).
+            cell_width_mm: Grid cell width in mm (default 25.4 — one 10-mil grid unit).
+            cell_height_mm: Grid cell height in mm (default 17.78).
+
+        Returns:
+            A list of (x_mm, y_mm) coordinate pairs, one per requested slot.
+        """
+        count = max(1, min(count, 64))
+        sch_file = _get_schematic_file()
+        sch_data = parse_schematic_file(sch_file)
+        all_syms = sch_data["symbols"] + sch_data["power_symbols"]
+
+        occupied = _estimate_occupied_cells(all_syms, cell_w=cell_width_mm, cell_h=cell_height_mm)
+
+        coords: list[tuple[float, float]] = []
+        for _ in range(count):
+            x, y = _next_free_cell(
+                occupied,
+                cell_w=cell_width_mm,
+                cell_h=cell_height_mm,
+            )
+            coords.append((round(x, 4), round(y, 4)))
+
+        lines = [
+            f"Free placement coordinates ({count} slot(s) requested, "
+            f"{len(all_syms)} existing symbol(s) avoided):",
+        ]
+        for i, (x, y) in enumerate(coords, start=1):
+            lines.append(f"  Slot {i}: x_mm={x}, y_mm={y}")
+        lines.append(
+            "\nPass these coordinates directly to sch_add_symbol(x_mm=..., y_mm=...)."
+        )
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_set_sheet_size(
+        paper: str = "A3",
+    ) -> str:
+        """Change the schematic sheet (paper) size.
+
+        Use this when the current sheet is too small to fit all symbols — for
+        example after ``sch_auto_place_functional`` warns that symbols were
+        placed outside the sheet boundary, or when you receive a screenshot
+        showing components outside the red sheet border.
+
+        Supported sizes (landscape): A4, A3, A2, A1, A0, A (letter), B, C, D, E,
+        USLetter, USLegal.
+
+        After resizing you should call ``sch_auto_place_functional`` again so
+        that symbols are re-distributed across the larger sheet.
+
+        Args:
+            paper: Target paper size keyword (default "A3").
+
+        Returns:
+            Confirmation with old and new dimensions.
+        """
+        paper = paper.strip()
+        if paper not in PAPER_SIZES_MM:
+            available = ", ".join(sorted(PAPER_SIZES_MM))
+            return (
+                f"Unknown paper size '{paper}'. "
+                f"Available sizes: {available}."
+            )
+
+        sch_file = _get_schematic_file()
+        try:
+            text = sch_file.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            return f"Could not read schematic file: {exc}"
+
+        # Find existing paper declaration
+        old_paper = _read_sheet_paper(sch_file)
+        old_w, old_h = PAPER_SIZES_MM.get(old_paper, (0.0, 0.0))
+        new_w, new_h = PAPER_SIZES_MM[paper]
+
+        # Replace or insert paper line
+        if re.search(r'\(paper\s+"[^"]*"', text):
+            new_text = re.sub(
+                r'\(paper\s+"[^"]*"\)',
+                f'(paper "{paper}")',
+                text,
+            )
+        else:
+            # Insert after the kicad_sch opening tag
+            new_text = re.sub(
+                r'(\(kicad_sch[^\n]*\n)',
+                rf'\1  (paper "{paper}")\n',
+                text,
+                count=1,
+            )
+
+        if new_text == text:
+            return (
+                f"Sheet is already '{paper}' ({new_w:.0f} x {new_h:.0f} mm). No change made."
+            )
+
+        try:
+            sch_file.write_text(new_text, encoding="utf-8")
+        except Exception as exc:
+            return f"Could not write schematic file: {exc}"
+
+        result = _reload_schematic()
+        usable_cols = _sheet_usable_cols(paper)
+        usable_rows = _sheet_usable_rows(paper)
+        return (
+            f"{result}\n"
+            f"Sheet resized: {old_paper} ({old_w:.0f}x{old_h:.0f} mm) "
+            f"-> {paper} ({new_w:.0f}x{new_h:.0f} mm).\n"
+            f"Usable grid: {usable_cols} columns x {usable_rows} rows "
+            f"(origin {AUTO_LAYOUT_ORIGIN_X_MM} mm, margin {_SHEET_MARGIN_MM} mm).\n"
+            f"Tip: run sch_auto_place_functional to redistribute symbols on the new sheet."
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_auto_resize_sheet() -> str:
+        """Automatically grow the sheet to fit all currently placed symbols.
+
+        Reads the bounding box of all placed symbols and selects the smallest
+        standard paper size (A4 → A3 → A2 → A1) that contains them with the
+        configured margin.  If the current sheet already fits, reports that no
+        change is needed.
+
+        Returns:
+            The chosen paper size and new dimensions, or a message if the
+            current size is already sufficient.
+        """
+        sch_file = _get_schematic_file()
+        sch_data = parse_schematic_file(sch_file)
+        all_syms = sch_data["symbols"] + sch_data["power_symbols"]
+
+        if not all_syms:
+            return "No symbols found — sheet size unchanged."
+
+        xs = [float(s.get("x", s.get("x_mm", 0.0)) or 0.0) for s in all_syms]
+        ys = [float(s.get("y", s.get("y_mm", 0.0)) or 0.0) for s in all_syms]
+
+        required_w = max(xs) + _SYMBOL_HALF_W_MM + _SHEET_MARGIN_MM
+        required_h = max(ys) + _SYMBOL_HALF_H_MM + _SHEET_MARGIN_MM
+
+        # Pick smallest standard size (in landscape) that fits
+        candidates = ["A4", "A3", "A2", "A1", "A0", "B", "C", "D", "E"]
+        chosen = None
+        for size in candidates:
+            w, h = PAPER_SIZES_MM[size]
+            if w >= required_w and h >= required_h:
+                chosen = size
+                break
+
+        current_paper = _read_sheet_paper(sch_file)
+        cur_w, cur_h = PAPER_SIZES_MM.get(current_paper, PAPER_SIZES_MM["A4"])
+
+        if chosen is None:
+            return (
+                f"Symbols span {required_w:.0f} x {required_h:.0f} mm — "
+                "no standard size is large enough.  Consider splitting into "
+                "hierarchical sheets (sch_create_sheet)."
+            )
+
+        if chosen == current_paper:
+            return (
+                f"Current sheet '{current_paper}' ({cur_w:.0f}x{cur_h:.0f} mm) "
+                f"already fits all symbols (required {required_w:.0f}x{required_h:.0f} mm)."
+            )
+
+        # Delegate to sch_set_sheet_size logic
+        return sch_set_sheet_size(paper=chosen)
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_auto_place_functional(
+        symbol_list: list[str] | None = None,
+    ) -> str:
+        """Place schematic symbols into semantically meaningful zones on the sheet.
+
+        Unlike the basic ``sch_auto_place_symbols`` which uses a plain grid,
+        this tool categorises each symbol by its **function** (MCU, connector,
+        power IC, sensor, passive, protection …) and places it in the
+        corresponding region of the schematic sheet.  The result is a readable,
+        professionally structured schematic with logical signal flow
+        (connectors on the left, processing in the centre, power/decoupling at
+        the bottom).
+
+        Zone layout (column × row, each cell = 25.4 × 17.78 mm)::
+
+            Col →    0-2          3-5          6-8
+            Row 0:   connectors   MCU          UI/LED/SW
+            Row 3:   power IC     sensors/IC   protection
+            Row 5:   power_pass   passives     transistors/filter
+            Row 7:   test points  ---          misc
+
+        The actual sheet size is read from the schematic file.  If the symbol
+        count would overflow the current sheet, a warning is appended
+        recommending ``sch_auto_resize_sheet`` to switch to a larger format
+        (A3, A2, …) before re-running this tool.
+
+        Symbols already placed (not in ``symbol_list``) are treated as fixed
+        obstacles and will not be overwritten.  Within each zone, symbols are
+        arranged in a compact row-major sub-grid.
+
+        Args:
+            symbol_list: Optional list of reference designators to place.  If
+                omitted, all symbols in the schematic are placed.
+
+        Returns:
+            A summary showing how many symbols were placed per functional zone,
+            plus an overflow warning if the sheet is too small.
+        """
+        sch_file = _get_schematic_file()
+        try:
+            schematic = _load_kicad_schematic(sch_file)
+        except Exception as exc:
+            return f"Could not load the active schematic for functional placement: {exc}"
+
+        sch_data = parse_schematic_file(sch_file)
+        all_syms = sch_data["symbols"] + sch_data["power_symbols"]
+
+        requested: list[str] = symbol_list or [
+            str(s["reference"]) for s in sch_data["symbols"]
+        ]
+        if not requested:
+            return "The active schematic contains no symbols to place."
+
+        requested_set = set(requested)
+        paper = _read_sheet_paper(sch_file)
+        max_cols = _sheet_usable_cols(paper)
+        max_rows = _sheet_usable_rows(paper)
+        sheet_w, sheet_h = PAPER_SIZES_MM.get(paper, PAPER_SIZES_MM["A4"])
+
+        # Fixed obstacles — symbols we are NOT moving
+        fixed_syms = [s for s in all_syms if str(s.get("reference", "")) not in requested_set]
+        global_occupied = _estimate_occupied_cells(fixed_syms)
+
+        # Per-zone occupancy
+        zone_occupied: dict[str, set[tuple[int, int]]] = {
+            z: set() for z in _FUNCTIONAL_ZONES
+        }
+
+        # Build symbol metadata lookup
+        sym_meta: dict[str, dict[str, str]] = {}
+        for s in sch_data["symbols"]:
+            ref = str(s.get("reference", ""))
+            sym_meta[ref] = {
+                "value": str(s.get("value", "")),
+                "lib_id": str(s.get("lib_id", "")),
+            }
+
+        placed = 0
+        overflow_count = 0
+        missing: list[str] = []
+        zone_counts: dict[str, int] = {}
+
+        for reference in requested:
+            component = schematic.components.get(reference)
+            if component is None:
+                missing.append(reference)
+                continue
+
+            meta = sym_meta.get(reference, {})
+            category = _classify_symbol(
+                ref=reference,
+                value=meta.get("value", ""),
+                lib_id=meta.get("lib_id", ""),
+            )
+
+            zone_col, zone_row = _FUNCTIONAL_ZONES.get(category, (5, 7))
+
+            # Clamp zone origin to sheet bounds
+            zone_col = min(zone_col, max(0, max_cols - _ZONE_MAX_COLS))
+            zone_row = min(zone_row, max(0, max_rows - 1))
+
+            # Find next free cell within this zone's sub-grid
+            placed_in_zone = zone_occupied[category]
+            found = False
+            for sub_row in range(0, max_rows):
+                for sub_col in range(0, _ZONE_MAX_COLS):
+                    cand_col = zone_col + sub_col
+                    cand_row = zone_row + sub_row
+                    if cand_col >= max_cols or cand_row >= max_rows:
+                        continue
+                    cell = (cand_col, cand_row)
+                    if cell not in global_occupied and cell not in placed_in_zone:
+                        col, row = cell
+                        found = True
+                        break
+                if found:
+                    break
+
+            if not found:
+                # Fall back to any remaining free cell within sheet bounds
+                col_f, row_f = _next_free_cell(global_occupied, paper=paper)
+                col = int(round((col_f - AUTO_LAYOUT_ORIGIN_X_MM) / AUTO_LAYOUT_COLUMN_SPACING_MM))
+                row = int(round((row_f - AUTO_LAYOUT_ORIGIN_Y_MM) / AUTO_LAYOUT_ROW_SPACING_MM))
+                # If still outside sheet bounds, flag overflow
+                if col >= max_cols or row >= max_rows:
+                    overflow_count += 1
+
+            x = AUTO_LAYOUT_ORIGIN_X_MM + col * AUTO_LAYOUT_COLUMN_SPACING_MM
+            y = AUTO_LAYOUT_ORIGIN_Y_MM + row * AUTO_LAYOUT_ROW_SPACING_MM
+            snapped_x, snapped_y = _snap_point(x, y, True)
+
+            component.move(snapped_x, snapped_y)
+            placed += 1
+
+            # Mark this cell occupied globally and within its zone
+            for dc in (-1, 0, 1):
+                for dr in (-1, 0, 1):
+                    global_occupied.add((col + dc, row + dr))
+            zone_occupied[category].add((col, row))
+            zone_counts[category] = zone_counts.get(category, 0) + 1
+
+        try:
+            schematic.save(sch_file, preserve_format=True)
+        except Exception as exc:
+            return f"Could not save functional placement changes: {exc}"
+
+        result = _reload_schematic()
+        missing_suffix = f" Missing refs: {', '.join(missing)}." if missing else ""
+
+        zone_lines = [f"  {cat}: {n}" for cat, n in sorted(zone_counts.items())]
+        summary = "\n".join(zone_lines) if zone_lines else "  (none)"
+
+        overflow_note = ""
+        if overflow_count:
+            overflow_note = (
+                f"\nWARNING: {overflow_count} symbol(s) could not fit within the "
+                f"'{paper}' sheet ({sheet_w:.0f}x{sheet_h:.0f} mm).  "
+                "Call sch_auto_resize_sheet to switch to a larger format, "
+                "then run sch_auto_place_functional again."
+            )
+
+        return (
+            f"{result}\n"
+            f"Functional auto-placement complete on '{paper}' sheet — "
+            f"{placed} symbol(s) placed in {len(zone_counts)} zone(s):\n{summary}"
+            f"{missing_suffix}{overflow_note}"
         )
 
     # -----------------------------------------------------------------------

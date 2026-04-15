@@ -129,7 +129,7 @@ def register(mcp: FastMCP) -> None:
             return f"Invalid layout '{layout}'. Choose from: grid, mousebites, vcut."
 
         if rows < 1 or cols < 1:
-            return "rows and cols must both be ≥ 1."
+            return "rows and cols must both be >= 1."
 
         out_dir = (cfg.output_dir or cfg.project_dir / "output") / "panel"  # type: ignore[operator]
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -191,7 +191,7 @@ def register(mcp: FastMCP) -> None:
 
         return (
             f"Panel created: {panel_file}\n"
-            f"Layout: {layout} {rows}×{cols}, spacing={spacing_mm}mm, frame={frame_width_mm}mm\n"
+            f"Layout: {layout} {rows}x{cols}, spacing={spacing_mm}mm, frame={frame_width_mm}mm\n"
             f"Open the panel file in KiCad to verify before submitting to fabricator."
         )
 
@@ -294,7 +294,7 @@ def register(mcp: FastMCP) -> None:
                         "Check link width and speed negotiation.",
                     ],
                     "can": [
-                        "Connect to CAN bus with 120Ω termination.",
+                        "Connect to CAN bus with 120ohm termination.",
                         "Send/receive test frames with CAN analyzer.",
                         "Verify no error frames at operational baud rate.",
                     ],

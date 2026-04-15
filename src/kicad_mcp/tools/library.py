@@ -825,16 +825,49 @@ def register(mcp: FastMCP) -> None:
 
         filtered = [r for r in results if r.stock > 0]
 
-        # Simple requirements filter — check if description contains voltage/current hints.
+        # Requirements filter — extract numbers from description and check constraints.
+        # Keys follow a convention: suffix _v (voltage), _a (current), _db (decibels),
+        # _mohm (milli-ohm), _uf (microfarad), _ohm (ohm), _mhz (MHz), _khz (kHz).
+        # A value can be a scalar (treated as minimum) or {"min": x, "max": y}.
+        import re as _re
+
+        _NUM_RE = _re.compile(r"[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?")
+
+        def _extract_numbers(text: str) -> list[float]:
+            return [float(m) for m in _NUM_RE.findall(text.lower())]
+
+        def _unit_scale(key: str) -> float:
+            """Convert requirement value to the same unit found in descriptions."""
+            key = key.lower()
+            if key.endswith("_mohm"):   return 0.001    # milli-ohm → ohm for description match
+            if key.endswith("_uf"):     return 1.0
+            if key.endswith("_nf"):     return 0.001
+            if key.endswith("_pf"):     return 1e-6
+            if key.endswith("_mhz"):    return 1.0
+            if key.endswith("_khz"):    return 0.001
+            return 1.0                   # _v, _a, _db, _ohm — no scaling needed
+
         def _matches(r: ComponentRecord) -> bool:
+            if not requirements:
+                return True
             desc = (r.description or "").lower()
+            nums = _extract_numbers(desc)
             for key, val in requirements.items():
-                # Basic heuristic: check if value range appears in description
-                if isinstance(val, (int, float)):
-                    numeric_val = float(val)
-                    # For voltage/current, just confirm description plausibly matches
-                    _ = numeric_val  # reserved for future tighter filtering
-            return True  # Pass through; let agent inspect full details
+                scale = _unit_scale(key)
+                if isinstance(val, dict):
+                    lo = float(val.get("min", float("-inf"))) * scale
+                    hi = float(val.get("max", float("inf"))) * scale
+                    # Pass if any number in the description falls within [lo, hi]
+                    if not any(lo <= n <= hi for n in nums):
+                        return False
+                elif isinstance(val, (int, float)):
+                    target = float(val) * scale
+                    # Pass if any number in the description is >= target (treat as minimum)
+                    if nums and not any(n >= target * 0.8 for n in nums):
+                        # 20% tolerance to handle rounding in descriptions
+                        return False
+                # String values are ignored by numeric filter (let agent decide)
+            return True
 
         matched = [r for r in filtered if _matches(r)]
         ordered = _sort_component_results(matched, sort_by="price")[:max_results]

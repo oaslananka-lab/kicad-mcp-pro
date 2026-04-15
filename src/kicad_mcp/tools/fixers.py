@@ -1,11 +1,13 @@
 """Gate-to-fixer registry for the auto-fix loop.
 
-This module is intentionally side-effect-free: it only describes *which* tool
-to call and *why*, given a gate name and optional failure reason text.
+This module describes *which* tool to call and *why*, given a gate name and
+optional failure reason text.  For ``auto_applicable`` fixers it also exposes
+a ``callable_import`` path so that ``project_auto_fix_loop`` can invoke the
+underlying implementation directly — without going through MCP transport.
 
-The actual fix execution is the responsibility of the calling tool
-(``project_auto_fix_loop``), which either applies server-side auto-fixes or
-returns a structured action plan for the agent to follow.
+Callable convention: ``"module_path:function_name"``  where ``module_path`` is
+relative to the ``kicad_mcp`` package (e.g. ``tools.schematic:run_auto_annotate``).
+The function must take no required arguments and return a ``str`` summary.
 """
 
 from __future__ import annotations
@@ -21,12 +23,16 @@ class FixerAction:
     ``auto_applicable`` indicates the server can apply the fix without agent
     involvement (e.g., zone refill, annotation).  When ``False``, the action is
     returned as an instruction for the agent.
+
+    ``callable_import`` — optional ``"module:function"`` string used by
+    ``project_auto_fix_loop`` to call the fixer directly.
     """
 
     tool: str
     description: str
     args: dict[str, Any] = field(default_factory=dict)
     auto_applicable: bool = False
+    callable_import: str = ""  # e.g. "tools.schematic:run_auto_annotate"
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +48,14 @@ GATE_FIXERS: dict[str, list[FixerAction]] = {
             tool="sch_annotate",
             description="Annotate un-annotated schematic symbols.",
             auto_applicable=True,
+            callable_import="tools.schematic:run_auto_annotate",
+        ),
+        FixerAction(
+            tool="sch_get_bounding_boxes",
+            description=(
+                "Check for overlapping symbols: get current bounding boxes, "
+                "then use sch_find_free_placement + sch_auto_place_symbols to fix."
+            ),
         ),
         FixerAction(
             tool="run_erc",
@@ -63,6 +77,7 @@ GATE_FIXERS: dict[str, list[FixerAction]] = {
             tool="pcb_refill_zones",
             description="Refill copper zones to resolve unconnected-net violations.",
             auto_applicable=True,
+            callable_import="tools.pcb:run_auto_refill_zones",
         ),
         FixerAction(
             tool="run_drc",
@@ -102,6 +117,7 @@ GATE_FIXERS: dict[str, list[FixerAction]] = {
             tool="pcb_refill_zones",
             description="Refill zones — common cause of DFM copper-coverage failures.",
             auto_applicable=True,
+            callable_import="tools.pcb:run_auto_refill_zones",
         ),
     ],
     "Footprint parity": [

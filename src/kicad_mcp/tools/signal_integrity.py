@@ -5,6 +5,38 @@ from __future__ import annotations
 import math
 from typing import Protocol, cast
 
+# Routing helpers imported at call-time (avoids circular import at module level)
+# Used by si_bind_interfaces_to_net_classes(dry_run=False).
+def _write_nc_rule(net_class: str, clearance_mm: float, track_width_mm: float,
+                   diff_gap_mm: float | None) -> str:
+    """Write a net-class rule to the project's .kicad_dru file and return the path."""
+    from .routing import _write_rule, _mm  # local import — avoids circular dep
+    from ..utils.sexpr import _sexpr_string
+
+    via_d = max(0.4, clearance_mm * 2 + track_width_mm)
+    via_drill = via_d * 0.55
+    name = f"Net class {net_class}"
+    constraints = [
+        f"  (constraint track_width (min {_mm(track_width_mm)}) "
+        f"(opt {_mm(track_width_mm)}) (max {_mm(track_width_mm)}))",
+        f"  (constraint clearance (min {_mm(clearance_mm)}))",
+        f"  (constraint via_diameter (min {_mm(via_d)}) (opt {_mm(via_d)}))",
+        f"  (constraint via_drill (min {_mm(via_drill)}) (opt {_mm(via_drill)}))",
+    ]
+    if diff_gap_mm is not None:
+        constraints.append(
+            f"  (constraint diff_pair_gap (min {_mm(diff_gap_mm)}) "
+            f"(opt {_mm(diff_gap_mm)}))"
+        )
+    body = "\n".join(
+        [f"(rule {_sexpr_string(name)}",
+         f'  (condition "A.NetClass == \'{net_class}\'")',
+         *constraints,
+         ")"]
+    )
+    path = _write_rule(name, body)
+    return str(path)
+
 from kipy.proto.board.board_types_pb2 import ViaType
 from mcp.server.fastmcp import FastMCP
 
@@ -701,7 +733,7 @@ def register(mcp: FastMCP) -> None:
         for m in materials:
             lines.append(
                 f"  [{m['key']}] {m['name']}"
-                f"  Er={m['er']}  tanδ={m['loss_tangent']}"
+                f"  Er={m['er']}  tan_d={m['loss_tangent']}"
             )
             lines.append(f"    {m['description']}")
             lines.append("")
@@ -800,8 +832,8 @@ def register(mcp: FastMCP) -> None:
                 has_highspeed = True
             iface_summaries.append(
                 f"  {kind}: {freq:.2f} GHz"
-                + (f", {impedance}Ω diff" if impedance and diff else
-                   f", {impedance}Ω SE" if impedance else "")
+                + (f", {impedance}ohm diff" if impedance and diff else
+                   f", {impedance}ohm SE" if impedance else "")
             )
 
         # Override material if frequency mandates it
@@ -826,13 +858,13 @@ def register(mcp: FastMCP) -> None:
         else:
             layer_count = 8
 
-        # Calculate outer dielectric thickness for 50Ω microstrip (1 oz Cu)
+        # Calculate outer dielectric thickness for 50ohm microstrip (1 oz Cu)
         outer_h_mm = 0.18  # starting guess
         target_ohm = 50.0
         width_50ohm = solve_width_for_impedance(target_ohm, outer_h_mm, er, copper_oz=1.0)
         actual_z, _ = trace_impedance(width_50ohm, outer_h_mm, er, copper_oz=1.0)
 
-        # Diff pair gap for 90Ω differential (USB standard)
+        # Diff pair gap for 90ohm differential (USB standard)
         gap_90ohm = solve_spacing_for_differential_impedance(
             90.0, width_50ohm * 0.8, outer_h_mm, er, copper_oz=1.0
         )
@@ -845,19 +877,19 @@ def register(mcp: FastMCP) -> None:
             "",
             f"Max interface frequency: {max_freq_ghz:.2f} GHz",
             f"Has differential pairs: {has_differential}",
-            f"Has high-speed signals (≥1 GHz): {has_highspeed}",
+            f"Has high-speed signals (&gt;=1 GHz): {has_highspeed}",
             "",
             "## Recommended Stackup",
             f"- Layer count: **{layer_count}**",
-            f"- Dielectric: **{mat_name}** (Er={er}, tanδ={loss_tan})",
+            f"- Dielectric: **{mat_name}** (Er={er}, tan_d={loss_tan})",
             f"- Outer prepreg thickness: ~{outer_h_mm:.2f} mm",
             f"- Board thickness: {board_thickness_mm:.1f} mm",
             f"- Outer copper weight: 1 oz (0.035 mm)",
             f"- Inner copper weight: 0.5 oz (recommended for dense routing)",
             "",
-            "## Trace Width Targets (50Ω SE microstrip on outer layers)",
-            f"- 50Ω trace width: **{width_50ohm:.3f} mm** (actual Z={actual_z:.1f}Ω)",
-            f"- 90Ω diff-pair gap: **{gap_90ohm:.3f} mm** (USB 2.0 / USB 3.x)",
+            "## Trace Width Targets (50ohm SE microstrip on outer layers)",
+            f"- 50ohm trace width: **{width_50ohm:.3f} mm** (actual Z={actual_z:.1f}ohm)",
+            f"- 90ohm diff-pair gap: **{gap_90ohm:.3f} mm** (USB 2.0 / USB 3.x)",
             "",
             "## Net Class Configuration",
             "| Net class | Clearance (mm) | Track width (mm) | Diff gap (mm) |",
@@ -949,7 +981,7 @@ def register(mcp: FastMCP) -> None:
             if entry.get("diff_pair_gap_mm") is not None:
                 lines.append(f"- Diff-pair gap: {entry['diff_pair_gap_mm']} mm")
             if entry.get("impedance_target_ohm") is not None:
-                lines.append(f"- Impedance target: {entry['impedance_target_ohm']} Ω")
+                lines.append(f"- Impedance target: {entry['impedance_target_ohm']} ohm")
             if entry.get("net_prefix"):
                 lines.append(f"- Net prefix filter: {entry['net_prefix']}")
             lines.append(
@@ -962,12 +994,36 @@ def register(mcp: FastMCP) -> None:
         if dry_run:
             lines.append(
                 "_Dry-run mode: no changes applied. "
-                "Set dry_run=False to apply all net class mappings._"
+                "Set dry_run=False to write all net class rules to the .kicad_dru file._"
             )
         else:
-            lines.append(
-                "Note: To apply, call pcb_set_net_class() for each entry above. "
-                "Automatic application requires pcb_write profile."
-            )
+            # Actually write each net class rule to the design rules file.
+            written: list[str] = []
+            errors: list[str] = []
+            rules_file: str = ""
+            for entry in plan:
+                nc = str(entry["net_class"])
+                cl = float(entry["clearance_mm"])  # type: ignore[arg-type]
+                tw = float(entry["track_width_mm"])  # type: ignore[arg-type]
+                dg = (float(entry["diff_pair_gap_mm"])  # type: ignore[arg-type]
+                      if entry.get("diff_pair_gap_mm") is not None else None)
+                try:
+                    rules_file = _write_nc_rule(nc, cl, tw, dg)
+                    written.append(nc)
+                except Exception as exc:
+                    errors.append(f"{nc}: {exc}")
+
+            if written:
+                lines.append(
+                    f"\n**Applied** {len(written)} net class rule(s) to `{rules_file}`:"
+                )
+                for nc in written:
+                    lines.append(f"  - {nc}")
+            if errors:
+                lines.append(f"\n**Errors** ({len(errors)}):")
+                for e in errors:
+                    lines.append(f"  - {e}")
+            if not written and not errors:
+                lines.append("No net class rules were written (empty plan).")
 
         return "\n".join(lines)

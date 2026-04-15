@@ -147,6 +147,12 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "sch_check_power_flags",
             "sch_annotate",
             "sch_reload",
+            # v2.1.0 — spatial awareness + sheet size tools
+            "sch_get_bounding_boxes",
+            "sch_find_free_placement",
+            "sch_auto_place_functional",
+            "sch_set_sheet_size",
+            "sch_auto_resize_sheet",
             # v2.1.0 — subcircuit template tools
             "sch_list_templates",
             "sch_get_template_info",

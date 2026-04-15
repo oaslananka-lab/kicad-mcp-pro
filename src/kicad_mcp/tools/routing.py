@@ -445,6 +445,26 @@ def register(mcp: FastMCP) -> None:
                 f"stderr: {result.stderr or 'unknown error'}"
             )
 
+        # Validate the SES output actually exists and has non-zero content.
+        # KiCad 10's Specctra bridge can silently produce an empty file when
+        # the round-trip fails, making the tool appear successful while no
+        # traces are actually imported.
+        ses_output = result.output_ses if hasattr(result, "output_ses") else ses_target
+        ses_path_obj = Path(ses_output) if ses_output else None
+        ses_ok = (
+            ses_path_obj is not None
+            and ses_path_obj.exists()
+            and ses_path_obj.stat().st_size > 512  # empty SES is <200 bytes
+        )
+        if not ses_ok:
+            return (
+                "FreeRouting ran but the SES session file is missing or empty — "
+                "this is a known KiCad 10 / Specctra round-trip failure.\n"
+                "Workaround: open the PCB in KiCad GUI and import the DSN manually "
+                f"via File > Import > Specctra Session ({_relative_project_path(dsn_file)}).\n"
+                f"SES path checked: {ses_path_obj}"
+            )
+
         ignore_text = ", ".join(net_classes_to_ignore or []) or "none"
         return (
             "FreeRouting completed successfully.\n"
