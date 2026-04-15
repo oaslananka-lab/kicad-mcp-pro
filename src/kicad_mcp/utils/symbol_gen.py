@@ -12,7 +12,7 @@ Pin electrical types (KiCad identifiers):
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 from .sexpr import _sexpr_string

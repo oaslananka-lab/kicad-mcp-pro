@@ -24,9 +24,7 @@ from kicad_mcp.models.intent import (
     ThermalEnvelope,
 )
 from kicad_mcp.tools.project import (
-    DecouplingPairIntent,
     ProjectDesignIntent,
-    RFKeepoutIntent,
     _normalize_design_intent,
 )
 

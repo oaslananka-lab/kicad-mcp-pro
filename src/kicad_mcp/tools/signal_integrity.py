@@ -5,38 +5,6 @@ from __future__ import annotations
 import math
 from typing import Protocol, cast
 
-# Routing helpers imported at call-time (avoids circular import at module level)
-# Used by si_bind_interfaces_to_net_classes(dry_run=False).
-def _write_nc_rule(net_class: str, clearance_mm: float, track_width_mm: float,
-                   diff_gap_mm: float | None) -> str:
-    """Write a net-class rule to the project's .kicad_dru file and return the path."""
-    from .routing import _write_rule, _mm  # local import — avoids circular dep
-    from ..utils.sexpr import _sexpr_string
-
-    via_d = max(0.4, clearance_mm * 2 + track_width_mm)
-    via_drill = via_d * 0.55
-    name = f"Net class {net_class}"
-    constraints = [
-        f"  (constraint track_width (min {_mm(track_width_mm)}) "
-        f"(opt {_mm(track_width_mm)}) (max {_mm(track_width_mm)}))",
-        f"  (constraint clearance (min {_mm(clearance_mm)}))",
-        f"  (constraint via_diameter (min {_mm(via_d)}) (opt {_mm(via_d)}))",
-        f"  (constraint via_drill (min {_mm(via_drill)}) (opt {_mm(via_drill)}))",
-    ]
-    if diff_gap_mm is not None:
-        constraints.append(
-            f"  (constraint diff_pair_gap (min {_mm(diff_gap_mm)}) "
-            f"(opt {_mm(diff_gap_mm)}))"
-        )
-    body = "\n".join(
-        [f"(rule {_sexpr_string(name)}",
-         f'  (condition "A.NetClass == \'{net_class}\'")',
-         *constraints,
-         ")"]
-    )
-    path = _write_rule(name, body)
-    return str(path)
-
 from kipy.proto.board.board_types_pb2 import ViaType
 from mcp.server.fastmcp import FastMCP
 
@@ -71,6 +39,42 @@ from ..utils.units import _coord_nm, nm_to_mm
 
 _DEFAULT_OUTER_DIELECTRIC_MM = 0.18
 _DEFAULT_BOARD_THICKNESS_MM = 1.6
+
+
+def _write_nc_rule(
+    net_class: str,
+    clearance_mm: float,
+    track_width_mm: float,
+    diff_gap_mm: float | None,
+) -> str:
+    """Write a net-class rule to the project's .kicad_dru file and return the path."""
+    from ..utils.sexpr import _sexpr_string
+    from .routing import _mm, _write_rule  # local import avoids a module cycle
+
+    via_d = max(0.4, clearance_mm * 2 + track_width_mm)
+    via_drill = via_d * 0.55
+    name = f"Net class {net_class}"
+    constraints = [
+        f"  (constraint track_width (min {_mm(track_width_mm)}) "
+        f"(opt {_mm(track_width_mm)}) (max {_mm(track_width_mm)}))",
+        f"  (constraint clearance (min {_mm(clearance_mm)}))",
+        f"  (constraint via_diameter (min {_mm(via_d)}) (opt {_mm(via_d)}))",
+        f"  (constraint via_drill (min {_mm(via_drill)}) (opt {_mm(via_drill)}))",
+    ]
+    if diff_gap_mm is not None:
+        constraints.append(
+            f"  (constraint diff_pair_gap (min {_mm(diff_gap_mm)}) "
+            f"(opt {_mm(diff_gap_mm)}))"
+        )
+    body = "\n".join(
+        [
+            f"(rule {_sexpr_string(name)}",
+            f'  (condition "A.NetClass == \'{net_class}\'")',
+            *constraints,
+            ")",
+        ]
+    )
+    return str(_write_rule(name, body))
 
 
 class _TrackLike(Protocol):
@@ -778,7 +782,7 @@ def register(mcp: FastMCP) -> None:
         }.get(cost_tier.lower(), "fr4_standard")
 
         # Determine maximum frequency from interface kinds
-        _INTERFACE_FREQ_GHZ: dict[str, float] = {
+        interface_freq_ghz: dict[str, float] = {
             "usb2": 0.48,
             "usb3": 2.5,
             "usb3_gen2": 5.0,
@@ -820,7 +824,7 @@ def register(mcp: FastMCP) -> None:
 
         for raw in interfaces:
             kind = str(raw.get("kind", "")).lower()
-            freq = _INTERFACE_FREQ_GHZ.get(kind, 0.0)
+            freq = interface_freq_ghz.get(kind, 0.0)
             max_freq_ghz = max(max_freq_ghz, freq)
             diff = bool(raw.get("differential", False))
             impedance = raw.get("impedance_target_ohm")
@@ -884,8 +888,8 @@ def register(mcp: FastMCP) -> None:
             f"- Dielectric: **{mat_name}** (Er={er}, tan_d={loss_tan})",
             f"- Outer prepreg thickness: ~{outer_h_mm:.2f} mm",
             f"- Board thickness: {board_thickness_mm:.1f} mm",
-            f"- Outer copper weight: 1 oz (0.035 mm)",
-            f"- Inner copper weight: 0.5 oz (recommended for dense routing)",
+            "- Outer copper weight: 1 oz (0.035 mm)",
+            "- Inner copper weight: 0.5 oz (recommended for dense routing)",
             "",
             "## Trace Width Targets (50ohm SE microstrip on outer layers)",
             f"- 50ohm trace width: **{width_50ohm:.3f} mm** (actual Z={actual_z:.1f}ohm)",
@@ -894,7 +898,7 @@ def register(mcp: FastMCP) -> None:
             "## Net Class Configuration",
             "| Net class | Clearance (mm) | Track width (mm) | Diff gap (mm) |",
             "|-----------|---------------|-----------------|--------------|",
-            f"| Default   | 0.20          | 0.20            | —            |",
+            "| Default   | 0.20          | 0.20            | —            |",
             f"| 50R_SE    | 0.20          | {width_50ohm:.3f}         | —            |",
             f"| 90R_DIFF  | 0.15          | {width_50ohm*0.8:.3f}     | {gap_90ohm:.3f}      |",
             f"| 100R_DIFF | 0.15          | {width_50ohm*0.75:.3f}    |              |",
@@ -903,7 +907,7 @@ def register(mcp: FastMCP) -> None:
             "1. Call pcb_set_stackup() with layer_count and dielectric params above.",
             "2. Call pcb_set_net_class() for each high-speed net class.",
             "3. Route differential pairs with si_validate_length_matching().",
-            f"",
+            "",
             f"Material note: {mat_desc}",
         ]
         return "\n".join(lines)
@@ -927,7 +931,7 @@ def register(mcp: FastMCP) -> None:
         Returns:
             Net class plan or confirmation of changes applied.
         """
-        NET_CLASS_TEMPLATES: dict[str, dict[str, object]] = {
+        net_class_templates: dict[str, dict[str, object]] = {
             "usb2":            {"clearance": 0.15, "track_width": 0.20, "diff_gap": 0.20},
             "usb3":            {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.15},
             "usb3_gen2":       {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.12},
@@ -952,7 +956,7 @@ def register(mcp: FastMCP) -> None:
         plan: list[dict[str, object]] = []
         for raw in interfaces:
             kind = str(raw.get("kind", "")).lower()
-            template = NET_CLASS_TEMPLATES.get(kind)
+            template = net_class_templates.get(kind)
             if template is None:
                 continue  # Skip low-speed / non-critical interfaces
             impedance = raw.get("impedance_target_ohm")

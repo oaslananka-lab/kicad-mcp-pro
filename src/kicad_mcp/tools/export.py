@@ -37,13 +37,16 @@ def _run_cli(*args: str, timeout: float | None = None) -> tuple[int, str, str]:
             "kicad-cli is not available. Set KICAD_MCP_KICAD_CLI to a valid executable."
         )
 
-    result = subprocess.run(
-        [str(cfg.kicad_cli), *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout or cfg.cli_timeout,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [str(cfg.kicad_cli), *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout or cfg.cli_timeout,
+            check=False,
+        )
+    except OSError as exc:
+        return 1, "", _sanitize_cli_text(str(exc))
     return (
         result.returncode,
         _sanitize_cli_text(result.stdout),

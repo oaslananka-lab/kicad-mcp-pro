@@ -681,8 +681,8 @@ def _fp_search_roots() -> list[Path]:
             for pretty in cfg.project_dir.rglob("*.pretty"):
                 if pretty.is_dir():
                     roots.append(pretty.parent)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("footprint_search_roots_failed", error=str(exc))
     return roots
 
 
@@ -823,13 +823,45 @@ def _classify_symbol(ref: str, value: str, lib_id: str) -> str:
 
     # ICs — further classify
     if prefix == "U":
-        if any(k in lib_up for k in ("ESP32", "STM32", "ATMEGA", "NRF5", "RP2", "PIC", "RF_MODULE")):
+        if any(
+            k in lib_up
+            for k in ("ESP32", "STM32", "ATMEGA", "NRF5", "RP2", "PIC", "RF_MODULE")
+        ):
             return "mcu"
-        if any(k in lib_up for k in ("SENSOR", "ADXL", "BME", "BMP", "BMI", "MPU", "ICM", "LIS",
-                                      "VEML", "OPT", "SPH", "ICS")):
+        if any(
+            k in lib_up
+            for k in (
+                "SENSOR",
+                "ADXL",
+                "BME",
+                "BMP",
+                "BMI",
+                "MPU",
+                "ICM",
+                "LIS",
+                "VEML",
+                "OPT",
+                "SPH",
+                "ICS",
+            )
+        ):
             return "sensor"
-        if any(k in lib_up for k in ("REGUL", "LDO", "BUCK", "BOOST", "AP2112", "AMS", "MIC55",
-                                      "AP3", "TPS", "LM", "XC6")):
+        if any(
+            k in lib_up
+            for k in (
+                "REGUL",
+                "LDO",
+                "BUCK",
+                "BOOST",
+                "AP2112",
+                "AMS",
+                "MIC55",
+                "AP3",
+                "TPS",
+                "LM",
+                "XC6",
+            )
+        ):
             return "power_ic"
         if any(k in val_up for k in ("LDO", "REGUL", "AP2112", "AMS1117", "LM317", "XC6")):
             return "power_ic"
@@ -892,8 +924,8 @@ def _read_sheet_paper(sch_file: Path) -> str:
         m = re.search(r'\(paper\s+"([^"]+)"', text)
         if m:
             return m.group(1)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("sheet_paper_parse_failed", error=str(exc))
     return "A4"
 
 
@@ -1247,13 +1279,13 @@ def _apply_basic_auto_layout(
         symbol.setdefault("snap_to_grid", True)
 
     symbol_rows = max(1, math.ceil(max(len(laid_out_symbols), 1) / AUTO_LAYOUT_COLUMNS))
-    gnd_row = symbol_rows + 1
+    gnd_row = symbol_rows
     positive_row = -1  # above origin row
 
     pwr_occupied_gnd: set[tuple[int, int]] = set()
     pwr_occupied_pos: set[tuple[int, int]] = set()
 
-    for index, power_symbol in enumerate(laid_out_powers):
+    for power_symbol in laid_out_powers:
         name = str(power_symbol.get("name", "")).upper()
         if name.startswith("GND"):
             x, y = _next_free_cell(pwr_occupied_gnd, start_row=gnd_row)
@@ -1263,7 +1295,7 @@ def _apply_basic_auto_layout(
         power_symbol["y_mm"] = y
         power_symbol.setdefault("snap_to_grid", True)
 
-    label_row = gnd_row + 2
+    label_row = gnd_row + 1
     lbl_occupied: set[tuple[int, int]] = set()
     for label in laid_out_labels:
         x, y = _next_free_cell(lbl_occupied, start_row=label_row)
@@ -3554,7 +3586,9 @@ def register(mcp: FastMCP) -> None:
                     raw_x = center_x + (radius_mm * math.cos(angle))
                     raw_y = center_y + (radius_mm * math.sin(angle))
                     # Snap to nearest free cell
-                    col = int(round((raw_x - AUTO_LAYOUT_ORIGIN_X_MM) / AUTO_LAYOUT_COLUMN_SPACING_MM))
+                    col = int(
+                        round((raw_x - AUTO_LAYOUT_ORIGIN_X_MM) / AUTO_LAYOUT_COLUMN_SPACING_MM)
+                    )
                     row = int(round((raw_y - AUTO_LAYOUT_ORIGIN_Y_MM) / AUTO_LAYOUT_ROW_SPACING_MM))
                     x, y = _next_free_cell(occupied, start_col=col, start_row=row)
             else:
@@ -3578,8 +3612,9 @@ def register(mcp: FastMCP) -> None:
         result = _reload_schematic()
         missing_suffix = f" Missing: {', '.join(missing)}." if missing else ""
         return (
-            f"{result}\nAuto-placed {placed} symbol(s) using the {payload.strategy} strategy "
-            f"(overlap-aware, {len(fixed_syms)} fixed obstacle(s) respected)."
+            f"{result}\n"
+            f"Auto-placed {placed} symbol(s) using the {payload.strategy} strategy. "
+            f"Overlap-aware placement respected {len(fixed_syms)} fixed obstacle(s)."
             f"{missing_suffix}"
         )
 
@@ -3614,7 +3649,10 @@ def register(mcp: FastMCP) -> None:
 
         lines = [
             f"Schematic bounding boxes ({len(all_syms)} symbols):",
-            f"{'Ref':<10} {'Value':<16} {'X':>8} {'Y':>8} {'X_min':>8} {'Y_min':>8} {'X_max':>8} {'Y_max':>8}",
+            (
+                f"{'Ref':<10} {'Value':<16} {'X':>8} {'Y':>8} "
+                f"{'X_min':>8} {'Y_min':>8} {'X_max':>8} {'Y_max':>8}"
+            ),
             "-" * 76,
         ]
         for sym in all_syms:
@@ -3634,7 +3672,7 @@ def register(mcp: FastMCP) -> None:
                 "",
                 f"Sheet occupied region: X=[{min(all_x) - hw:.1f}, {max(all_x) + hw:.1f}] "
                 f"Y=[{min(all_y) - hh:.1f}, {max(all_y) + hh:.1f}] mm",
-                f"Tip: use sch_find_free_placement to get safe coordinates for new symbols.",
+                "Tip: use sch_find_free_placement to get safe coordinates for new symbols.",
             ]
 
         return "\n".join(lines)
@@ -3822,7 +3860,7 @@ def register(mcp: FastMCP) -> None:
             )
 
         # Delegate to sch_set_sheet_size logic
-        return sch_set_sheet_size(paper=chosen)
+        return str(sch_set_sheet_size(paper=chosen))
 
     @mcp.tool()
     @headless_compatible
@@ -4009,14 +4047,16 @@ def register(mcp: FastMCP) -> None:
         Call sch_get_template_info() for full parameter and placement details,
         then sch_instantiate_template() to add the subcircuit to the schematic.
         """
-        import importlib.resources
         from pathlib import Path as _Path
 
         templates_dir = _Path(__file__).parent.parent / "templates" / "subcircuits"
         if not templates_dir.exists():
             return "No subcircuit templates are available."
 
-        import yaml  # optional dep — graceful fallback
+        try:
+            import yaml  # type: ignore[import-untyped]
+        except ImportError:
+            return "Template tools require PyYAML. Install it to inspect bundled templates."
 
         lines = ["# Available Subcircuit Templates", ""]
         for yaml_file in sorted(templates_dir.glob("*.yaml")):
@@ -4069,6 +4109,8 @@ def register(mcp: FastMCP) -> None:
             import yaml
             with yaml_file.open(encoding="utf-8") as fh:
                 data = yaml.safe_load(fh)
+        except ImportError:
+            return "Template tools require PyYAML. Install it to inspect bundled templates."
         except Exception as exc:
             return f"Could not parse template '{template_name}': {exc}"
 
@@ -4162,6 +4204,8 @@ def register(mcp: FastMCP) -> None:
             import yaml
             with yaml_file.open(encoding="utf-8") as fh:
                 data = yaml.safe_load(fh)
+        except ImportError:
+            return "Template tools require PyYAML. Install it to instantiate templates."
         except Exception as exc:
             return f"Could not parse template '{template_name}': {exc}"
 
@@ -4227,7 +4271,10 @@ def register(mcp: FastMCP) -> None:
         lines += [
             "",
             "## Step 4: Footprint Assignment",
-            "For each symbol: `lib_bind_part_to_symbol(sym_ref, lcsc_code, auto_assign_footprint=True)`",
+            (
+                "For each symbol: `lib_bind_part_to_symbol(sym_ref, lcsc_code, "
+                "auto_assign_footprint=True)`"
+            ),
             "",
             "## Placement Hints",
         ]

@@ -12,8 +12,7 @@ import hashlib
 import json
 import shutil
 import subprocess
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -32,16 +31,22 @@ PanelLayout = Literal["grid", "mousebites", "vcut"]
 _ROTATIONS_JSON = Path(__file__).parent.parent / "dfm_profiles" / "jlcpcb_rotations.json"
 
 
-def _load_rotation_table() -> list[dict]:
+def _load_rotation_table() -> list[dict[str, Any]]:
     """Load JLCPCB rotation correction entries from the bundled JSON."""
     try:
         data = json.loads(_ROTATIONS_JSON.read_text(encoding="utf-8"))
-        return data.get("entries", [])
+        entries = data.get("entries", [])
+        if isinstance(entries, list):
+            return [entry for entry in entries if isinstance(entry, dict)]
+        return []
     except (OSError, json.JSONDecodeError):
         return []
 
 
-def _find_rotation_offset(footprint_name: str, table: list[dict]) -> int | None:
+def _find_rotation_offset(
+    footprint_name: str,
+    table: list[dict[str, Any]],
+) -> int | None:
     """Return the rotation offset (degrees) for a footprint, or None if not found.
 
     Matching is case-insensitive substring: the pattern must appear in the
@@ -219,7 +224,7 @@ def register(mcp: FastMCP) -> None:
 
         lines: list[str] = [
             "# Bring-Up Test Plan",
-            f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+            f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}",
             "",
         ]
 
@@ -272,7 +277,7 @@ def register(mcp: FastMCP) -> None:
                 kind = iface.kind
                 refs_str = ", ".join(iface.refs[:5]) if iface.refs else "(see schematic)"
                 lines.append(f"### {kind.upper()} ({refs_str})")
-                _INTERFACE_CHECKS: dict[str, list[str]] = {
+                interface_checks: dict[str, list[str]] = {
                     "usb2": [
                         "Connect USB analyzer or host device.",
                         "Verify USB enumeration (lsusb or device manager).",
@@ -312,7 +317,7 @@ def register(mcp: FastMCP) -> None:
                         "Flash test firmware and verify execution.",
                     ],
                 }
-                checks = _INTERFACE_CHECKS.get(
+                checks = interface_checks.get(
                     kind,
                     [f"Verify {kind} communication with appropriate test equipment."],
                 )
@@ -370,7 +375,7 @@ def register(mcp: FastMCP) -> None:
         Returns:
             Confirmation with manifest path and file count.
         """
-        from .project import load_design_intent, resolve_design_intent
+        from .project import load_design_intent
 
         cfg = get_config()
         out_dir = cfg.output_dir or (cfg.project_dir / "output")  # type: ignore[operator]
@@ -407,7 +412,7 @@ def register(mcp: FastMCP) -> None:
 
         manifest: dict[str, Any] = {
             "kicad_mcp_version": __version__,
-            "generated_utc": datetime.now(timezone.utc).isoformat(),
+            "generated_utc": datetime.now(UTC).isoformat(),
             "intent_hash": intent_hash,
             "files": file_hashes,
         }

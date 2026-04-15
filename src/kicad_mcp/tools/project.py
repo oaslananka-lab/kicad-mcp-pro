@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,7 +26,7 @@ from ..models.intent import (
     PowerRailSpec,
     ThermalEnvelope,
 )
-from .fixers import GATE_FIXERS, FixerAction, fixers_for_gate
+from .fixers import fixers_for_gate
 from .metadata import headless_compatible
 from .router import TOOL_CATEGORIES, available_profiles
 
@@ -748,7 +749,22 @@ def _suggested_tool_for_gate(name: str) -> str:
 def _next_action_payload() -> ProjectNextActionPayload:
     from .validation import _evaluate_project_gate
 
-    outcomes = _evaluate_project_gate()
+    try:
+        outcomes = _evaluate_project_gate()
+    except Exception as exc:
+        reason = f"Project quality gate could not be evaluated: {exc}"
+        lines = [
+            "Project next action:",
+            "- Status: BLOCKED",
+            "- Suggested tool: kicad_get_project_info()",
+            f"- Reason: {reason}",
+        ]
+        return ProjectNextActionPayload(
+            text="\n".join(lines),
+            status="BLOCKED",
+            reason=reason,
+            suggested_tool="kicad_get_project_info()",
+        )
     actionable = [outcome for outcome in outcomes if outcome.status != "PASS"]
     if not actionable:
         lines = [
@@ -1017,7 +1033,7 @@ def register(mcp: FastMCP) -> None:
         """
         import importlib
 
-        from .validation import _evaluate_project_gate, _combined_status, GateOutcome
+        from .validation import GateOutcome, _combined_status, _evaluate_project_gate
 
         max_iterations = max(1, min(max_iterations, 20))
         iterations_used = 0
@@ -1026,14 +1042,15 @@ def register(mcp: FastMCP) -> None:
         # ------------------------------------------------------------------ #
         # Helper: resolve a "tools.module:function" import string to callable  #
         # ------------------------------------------------------------------ #
-        def _resolve_callable(import_str: str):
+        def _resolve_callable(import_str: str) -> Callable[[], object] | None:
             if not import_str:
                 return None
             try:
                 mod_path, func_name = import_str.rsplit(":", 1)
                 full_mod = f"kicad_mcp.{mod_path}"
                 mod = importlib.import_module(full_mod)
-                return getattr(mod, func_name, None)
+                candidate = getattr(mod, func_name, None)
+                return candidate if callable(candidate) else None
             except Exception:
                 return None
 
@@ -1161,7 +1178,7 @@ def register(mcp: FastMCP) -> None:
         This is the recommended first call after opening a project to understand
         its current state.
         """
-        from .validation import _evaluate_project_gate, _combined_status, GateOutcome
+        from .validation import GateOutcome, _combined_status, _evaluate_project_gate
 
         resolution = resolve_design_intent()
         intent = resolution.resolved

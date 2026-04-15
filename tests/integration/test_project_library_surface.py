@@ -322,6 +322,21 @@ async def test_project_resources_prompts_and_library_surface(
         "lib_get_component_details",
         {"lcsc_code_or_mpn": "C25804", "source": "jlcsearch"},
     )
+    update_calls: list[tuple[str, str, str]] = []
+
+    def fake_update_symbol_property(reference: str, field: str, value: str) -> str:
+        update_calls.append((reference, field, value))
+        return f"Updated {reference}.{field}."
+
+    monkeypatch.setattr(
+        "kicad_mcp.tools.library.update_symbol_property",
+        fake_update_symbol_property,
+    )
+    bound_part = await call_tool_text(
+        server,
+        "lib_bind_part_to_symbol",
+        {"sym_ref": "R2", "lcsc_code_or_mpn": "C17414", "source": "jlcsearch"},
+    )
     bom = await call_tool_text(
         server,
         "lib_get_bom_with_pricing",
@@ -359,6 +374,14 @@ async def test_project_resources_prompts_and_library_surface(
     assert "Live component matches" in component_search
     assert "C25804" in component_search
     assert "Component details from jlcsearch" in component_details
+    assert "Bound 'C17414' to R2:" in bound_part
+    assert "- LCSC: C17414" in bound_part
+    assert "- MPN: 0805W8F1002T5E" in bound_part
+    assert update_calls == [
+        ("R2", "LCSC", "C17414"),
+        ("R2", "MPN", "0805W8F1002T5E"),
+        ("R2", "Footprint", "0805"),
+    ]
     assert "Live BOM with pricing from jlcsearch" in bom
     assert "Estimated total" in bom
     assert "Stock availability from jlcsearch" in stock

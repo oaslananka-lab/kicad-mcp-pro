@@ -11,10 +11,8 @@ The algorithm is unit-free; callers supply coordinates in mm and receive mm back
 from __future__ import annotations
 
 import math
-import random
 from dataclasses import dataclass, field
 from typing import NamedTuple
-
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -82,7 +80,6 @@ def force_directed_placement(
     if cfg is None:
         cfg = ForceDirectedConfig()
 
-    rng = random.Random(cfg.seed)
     comps = [PlacementComponent(**c.__dict__) for c in components]
     ref_idx: dict[str, int] = {c.ref: i for i, c in enumerate(comps)}
 
@@ -128,11 +125,11 @@ def force_directed_placement(
         # --- Attraction: connected pairs (spring) ---
         for i, comp in enumerate(comps):
             for neighbor_ref, weight in adjacency[comp.ref]:
-                j = ref_idx.get(neighbor_ref)
-                if j is None:
+                neighbor_index = ref_idx.get(neighbor_ref)
+                if neighbor_index is None:
                     continue
-                dx = comps[j].x - comp.x
-                dy = comps[j].y - comp.y
+                dx = comps[neighbor_index].x - comp.x
+                dy = comps[neighbor_index].y - comp.y
                 dist = max(math.hypot(dx, dy), cfg.min_dist)
                 force = cfg.k_spring * weight * dist
                 nx, ny = dx / dist, dy / dist
@@ -198,7 +195,7 @@ def generate_bga_fanout_plan(
     via_annular_mm: float = 0.1,
     escape_layer: str = "In1.Cu",
     strategy: str = "dog_ear",
-) -> list[dict]:
+) -> list[dict[str, object]]:
     """Return a list of via-placement descriptors for BGA fanout.
 
     Each descriptor has:
@@ -214,10 +211,9 @@ def generate_bga_fanout_plan(
       dog_ear   — via offset diagonally ~0.5*pitch from ball center (most common)
       inline    — via directly below ball on adjacent row (for 1mm+ pitch)
     """
-    via_r = via_drill_mm * 0.5 + via_annular_mm
     track_w = 0.1 if pitch_mm <= 0.65 else 0.15
 
-    vias: list[dict] = []
+    vias: list[dict[str, object]] = []
     for ball in balls:
         bx, by = ball.x_mm, ball.y_mm
 

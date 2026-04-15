@@ -12,7 +12,6 @@ import re
 import pytest
 
 from kicad_mcp.utils.footprint_gen import generate_footprint
-from kicad_mcp.utils.sexpr import _extract_block
 
 
 def _count_pads(sexpr: str) -> int:

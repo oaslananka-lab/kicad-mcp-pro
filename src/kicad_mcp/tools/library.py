@@ -668,7 +668,7 @@ def register(mcp: FastMCP) -> None:
         Returns:
             Confirmation with the saved file path, or an error message.
         """
-        from ..utils.footprint_gen import generate_footprint, DensityLevel
+        from ..utils.footprint_gen import generate_footprint
 
         if density not in ("A", "B", "C"):
             return f"Invalid density '{density}'. Must be A, B, or C."
@@ -740,7 +740,7 @@ def register(mcp: FastMCP) -> None:
         Returns:
             Confirmation with the saved file path, or an error message.
         """
-        from ..utils.symbol_gen import generate_symbol, PinSpec
+        from ..utils.symbol_gen import PinSpec, generate_symbol
 
         pin_specs: list[PinSpec] = []
         for raw in pins:
@@ -831,21 +831,27 @@ def register(mcp: FastMCP) -> None:
         # A value can be a scalar (treated as minimum) or {"min": x, "max": y}.
         import re as _re
 
-        _NUM_RE = _re.compile(r"[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?")
+        num_re = _re.compile(r"[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?")
 
         def _extract_numbers(text: str) -> list[float]:
-            return [float(m) for m in _NUM_RE.findall(text.lower())]
+            return [float(m) for m in num_re.findall(text.lower())]
 
         def _unit_scale(key: str) -> float:
             """Convert requirement value to the same unit found in descriptions."""
             key = key.lower()
-            if key.endswith("_mohm"):   return 0.001    # milli-ohm → ohm for description match
-            if key.endswith("_uf"):     return 1.0
-            if key.endswith("_nf"):     return 0.001
-            if key.endswith("_pf"):     return 1e-6
-            if key.endswith("_mhz"):    return 1.0
-            if key.endswith("_khz"):    return 0.001
-            return 1.0                   # _v, _a, _db, _ohm — no scaling needed
+            if key.endswith("_mohm"):
+                return 0.001  # milli-ohm -> ohm for description matching
+            if key.endswith("_uf"):
+                return 1.0
+            if key.endswith("_nf"):
+                return 0.001
+            if key.endswith("_pf"):
+                return 1e-6
+            if key.endswith("_mhz"):
+                return 1.0
+            if key.endswith("_khz"):
+                return 0.001
+            return 1.0  # _v, _a, _db, _ohm need no scaling
 
         def _matches(r: ComponentRecord) -> bool:
             if not requirements:
@@ -921,9 +927,8 @@ def register(mcp: FastMCP) -> None:
 
         # Assign LCSC code
         try:
-            backend = get_schematic_backend()
-            update_symbol_property(backend, sym_ref, "LCSC", part.lcsc_code)
-            update_symbol_property(backend, sym_ref, "MPN", part.mpn or "")
+            update_symbol_property(sym_ref, "LCSC", part.lcsc_code)
+            update_symbol_property(sym_ref, "MPN", part.mpn or "")
         except Exception as exc:
             return f"Could not update schematic properties for '{sym_ref}': {exc}"
 
@@ -938,9 +943,8 @@ def register(mcp: FastMCP) -> None:
         if auto_assign_footprint and part.package:
             # Try to find a matching footprint in the library index
             fp_assigned = False
+            fp_assign_error = ""
             try:
-                # Attempt footprint assignment via existing tool logic
-                from .library import _build_symbol_index  # self-reference OK here
                 # Map common package strings to KiCad footprint search terms
                 pkg_map = {
                     "SOT-23": "SOT-23",
@@ -949,17 +953,23 @@ def register(mcp: FastMCP) -> None:
                     "SSOP-20": "SSOP-20_4.4x6.5mm_P0.65mm",
                 }
                 hint = pkg_map.get(part.package.upper(), part.package)
-                update_symbol_property(backend, sym_ref, "Footprint", hint)
+                update_symbol_property(sym_ref, "Footprint", hint)
                 fp_assigned = True
-            except Exception:
-                pass
+            except Exception as exc:
+                fp_assign_error = str(exc)
 
             if fp_assigned:
                 lines.append(f"- Footprint hint: {part.package} (assigned to symbol)")
             else:
+                error_suffix = (
+                    f" (automatic assignment failed: {fp_assign_error})"
+                    if fp_assign_error
+                    else ""
+                )
                 lines.append(
                     f"- Footprint hint: {part.package} — "
                     "run lib_generate_footprint_ipc7351() or lib_assign_footprint() manually."
+                    f"{error_suffix}"
                 )
         elif auto_assign_footprint:
             lines.append(

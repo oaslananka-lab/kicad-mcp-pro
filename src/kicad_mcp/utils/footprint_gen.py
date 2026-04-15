@@ -18,8 +18,6 @@ Supported families
 from __future__ import annotations
 
 import math
-import uuid as _uuid_mod
-from dataclasses import dataclass, field
 from typing import Literal
 
 from .sexpr import _sexpr_string
@@ -50,20 +48,20 @@ _LAYER_CYARD = "F.CrtYd"
 def _fp_header(name: str, description: str, tags: str) -> list[str]:
     return [
         f"(footprint {_sexpr_string(name)}",
-        f"\t(version 20250316)",
-        f'\t(generator "kicad-mcp-footprint-gen")',
+        "\t(version 20250316)",
+        '\t(generator "kicad-mcp-footprint-gen")',
         f"\t(layer {_sexpr_string(_LAYER_CU)})",
         f"\t(descr {_sexpr_string(description)})",
         f"\t(tags {_sexpr_string(tags)})",
-        f'\t(attr smd)',
+        '\t(attr smd)',
     ]
 
 
 def _fp_header_tht(name: str, description: str, tags: str) -> list[str]:
     return [
         f"(footprint {_sexpr_string(name)}",
-        f"\t(version 20250316)",
-        f'\t(generator "kicad-mcp-footprint-gen")',
+        "\t(version 20250316)",
+        '\t(generator "kicad-mcp-footprint-gen")',
         f"\t(layer {_sexpr_string(_LAYER_CU)})",
         f"\t(descr {_sexpr_string(description)})",
         f"\t(tags {_sexpr_string(tags)})",
@@ -102,13 +100,32 @@ def _ref_value(
     return lines
 
 
-def _rect_line(layer: str, x1: float, y1: float, x2: float, y2: float, w: float = 0.1) -> list[str]:
+def _rect_line(
+    layer: str,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    w: float = 0.1,
+) -> list[str]:
     """Draw a rectangle on a layer as four line segments."""
     return [
-        f"\t(fp_line (start {x1:.4f} {y1:.4f}) (end {x2:.4f} {y1:.4f}) (layer {layer}) (stroke (width {w})(type solid)))",
-        f"\t(fp_line (start {x2:.4f} {y1:.4f}) (end {x2:.4f} {y2:.4f}) (layer {layer}) (stroke (width {w})(type solid)))",
-        f"\t(fp_line (start {x2:.4f} {y2:.4f}) (end {x1:.4f} {y2:.4f}) (layer {layer}) (stroke (width {w})(type solid)))",
-        f"\t(fp_line (start {x1:.4f} {y2:.4f}) (end {x1:.4f} {y1:.4f}) (layer {layer}) (stroke (width {w})(type solid)))",
+        (
+            f"\t(fp_line (start {x1:.4f} {y1:.4f}) (end {x2:.4f} {y1:.4f}) "
+            f"(layer {layer}) (stroke (width {w})(type solid)))"
+        ),
+        (
+            f"\t(fp_line (start {x2:.4f} {y1:.4f}) (end {x2:.4f} {y2:.4f}) "
+            f"(layer {layer}) (stroke (width {w})(type solid)))"
+        ),
+        (
+            f"\t(fp_line (start {x2:.4f} {y2:.4f}) (end {x1:.4f} {y2:.4f}) "
+            f"(layer {layer}) (stroke (width {w})(type solid)))"
+        ),
+        (
+            f"\t(fp_line (start {x1:.4f} {y2:.4f}) (end {x1:.4f} {y1:.4f}) "
+            f"(layer {layer}) (stroke (width {w})(type solid)))"
+        ),
     ]
 
 
@@ -143,7 +160,6 @@ def _chip_passive(size_code: str, density: DensityLevel = "B") -> str:
     jt, _jh, js = _IPC_OFFSETS[density]
     pad_w = land_l + jt
     pad_h = land_w + 2 * js
-    pad_gap = body_l / 2.0
     cx = (body_l / 2.0 + pad_w / 2.0) / 1.0  # centre of outer edge
     # Silk just outside body
     silk_x = body_l / 2.0 + 0.2
@@ -346,7 +362,13 @@ def _qfn(
         f" (layers {_LAYER_CU} {_LAYER_MASK} {_LAYER_PASTE}))"
     )
     # Body outline
-    lines += _rect_line(_LAYER_FAB, -body_size_mm / 2, -body_size_mm / 2, body_size_mm / 2, body_size_mm / 2)
+    lines += _rect_line(
+        _LAYER_FAB,
+        -body_size_mm / 2,
+        -body_size_mm / 2,
+        body_size_mm / 2,
+        body_size_mm / 2,
+    )
     lines += _rect_line(_LAYER_CYARD, -cyard, -cyard, cyard, cyard, 0.05)
     lines.append(")")
     return "\n".join(lines)
@@ -391,11 +413,23 @@ def _bga(
                 f" (size {pad_d:.4f} {pad_d:.4f})"
                 f" (layers {_LAYER_CU} {_LAYER_MASK}))"
             )
-    lines += _rect_line(_LAYER_FAB, -total_w / 2 - pitch_mm / 2, -total_h / 2 - pitch_mm / 2,
-                        total_w / 2 + pitch_mm / 2, total_h / 2 + pitch_mm / 2)
+    lines += _rect_line(
+        _LAYER_FAB,
+        -total_w / 2 - pitch_mm / 2,
+        -total_h / 2 - pitch_mm / 2,
+        total_w / 2 + pitch_mm / 2,
+        total_h / 2 + pitch_mm / 2,
+    )
     lines += _rect_line(_LAYER_CYARD, -cyard, -cyard, cyard, cyard, 0.05)
     # A1 corner dot
-    lines.append(_circle_line(_LAYER_FAB, -total_w / 2 - pitch_mm * 0.4, -total_h / 2 - pitch_mm * 0.4, 0.15))
+    lines.append(
+        _circle_line(
+            _LAYER_FAB,
+            -total_w / 2 - pitch_mm * 0.4,
+            -total_h / 2 - pitch_mm * 0.4,
+            0.15,
+        )
+    )
     lines.append(")")
     return "\n".join(lines)
 
@@ -420,9 +454,12 @@ def _pin_header(
     drill = pitch_mm * 0.4
     pad_size = drill + 0.8
     name = f"PinHeader_{rows}x{pin_count:02d}_{pitch_mm:.2f}mm"
-    lines = _fp_header_tht(name, f"Pin header {rows}×{pin_count} {pitch_mm:.2f}mm", "pin-header connector")
+    lines = _fp_header_tht(
+        name,
+        f"Pin header {rows}×{pin_count} {pitch_mm:.2f}mm",
+        "pin-header connector",
+    )
     lines += _ref_value(-(pin_count * pitch_mm / 2 + 0.5), pin_count * pitch_mm / 2 + 0.5)
-    total = rows * pin_count
     for i in range(pin_count):
         for r in range(rows):
             num = i * rows + r + 1
@@ -433,7 +470,6 @@ def _pin_header(
     ox = (rows - 1) * pitch_mm / 2 + pitch_mm / 2
     oy = (pin_count - 1) * pitch_mm / 2 + pitch_mm / 2
     lines += _rect_line(_LAYER_SILK, -ox, -oy, ox, oy)
-    cyard = max(ox, oy) + 0.25
     lines += _rect_line(_LAYER_CYARD, -ox - 0.25, -oy - 0.25, ox + 0.25, oy + 0.25, 0.05)
     lines.append(")")
     return "\n".join(lines)

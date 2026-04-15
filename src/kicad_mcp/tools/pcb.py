@@ -568,7 +568,8 @@ def run_auto_refill_zones() -> str:
     informational message (not an exception) when no KiCad session is running,
     so the auto-fix loop can continue to the next gate without aborting.
     """
-    from ..connection import KiCadConnectionError, get_board as _get_board
+    from ..connection import KiCadConnectionError
+    from ..connection import get_board as _get_board
 
     try:
         board = _get_board()
@@ -3123,8 +3124,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool()
     @headless_compatible
     def pcb_auto_place_force_directed(
-        component_positions: list[dict],
-        nets: list[dict],
+        component_positions: list[dict[str, object]],
+        nets: list[dict[str, object]],
         board_width_mm: float = 100.0,
         board_height_mm: float = 80.0,
         iterations: int = 300,
@@ -3155,20 +3156,20 @@ def register(mcp: FastMCP) -> None:
         """
         comps = [
             PlacementComponent(
-                ref=c["ref"],
-                x=float(c.get("x", 10.0)),
-                y=float(c.get("y", 10.0)),
-                w=float(c.get("w", 2.0)),
-                h=float(c.get("h", 2.0)),
+                ref=str(c["ref"]),
+                x=float(cast(float | int | str, c.get("x", 10.0))),
+                y=float(cast(float | int | str, c.get("y", 10.0))),
+                w=float(cast(float | int | str, c.get("w", 2.0))),
+                h=float(cast(float | int | str, c.get("h", 2.0))),
                 fixed=bool(c.get("fixed", False)),
             )
             for c in component_positions
         ]
         placement_nets = [
             PlacementNet(
-                name=n["name"],
-                refs=list(n.get("refs", [])),
-                weight=float(n.get("weight", 1.0)),
+                name=str(n["name"]),
+                refs=[str(ref) for ref in cast(list[object], n.get("refs", []))],
+                weight=float(cast(float | int | str, n.get("weight", 1.0))),
             )
             for n in nets
         ]
@@ -3193,7 +3194,7 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool()
     @headless_compatible
     def pcb_bga_fanout(
-        balls: list[dict],
+        balls: list[dict[str, object]],
         pitch_mm: float,
         via_drill_mm: float = 0.2,
         via_annular_mm: float = 0.1,
@@ -3223,10 +3224,10 @@ def register(mcp: FastMCP) -> None:
         ball_objs = [
             BGABall(
                 row=str(b["row"]),
-                col=int(b["col"]),
+                col=int(cast(int | str, b["col"])),
                 net=str(b["net"]),
-                x_mm=float(b.get("x_mm", 0.0)),
-                y_mm=float(b.get("y_mm", 0.0)),
+                x_mm=float(cast(float | int | str, b.get("x_mm", 0.0))),
+                y_mm=float(cast(float | int | str, b.get("y_mm", 0.0))),
             )
             for b in balls
         ]

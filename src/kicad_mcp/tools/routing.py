@@ -433,7 +433,6 @@ def register(mcp: FastMCP) -> None:
                 else None,
                 net_classes_to_ignore=net_classes_to_ignore,
             )
-            staged = runner.import_ses(pcb_file, result.output_ses)
         except (FileNotFoundError, RuntimeError, ValueError) as exc:
             return f"FreeRouting autoroute failed: {exc}"
 
@@ -445,16 +444,17 @@ def register(mcp: FastMCP) -> None:
                 f"stderr: {result.stderr or 'unknown error'}"
             )
 
-        # Validate the SES output actually exists and has non-zero content.
-        # KiCad 10's Specctra bridge can silently produce an empty file when
-        # the round-trip fails, making the tool appear successful while no
-        # traces are actually imported.
-        ses_output = result.output_ses if hasattr(result, "output_ses") else ses_target
+        # Validate the SES output actually exists and is not empty before
+        # staging it for KiCad import. A zero-byte session file is a reliable
+        # failure signal; non-empty files should be surfaced to the user even
+        # when the session is minimal.
+        ses_output = result.output_ses
         ses_path_obj = Path(ses_output) if ses_output else None
+        if ses_path_obj is None:
+            return "FreeRouting autoroute failed: no SES output path was reported."
         ses_ok = (
-            ses_path_obj is not None
-            and ses_path_obj.exists()
-            and ses_path_obj.stat().st_size > 512  # empty SES is <200 bytes
+            ses_path_obj.exists()
+            and ses_path_obj.stat().st_size > 0
         )
         if not ses_ok:
             return (
@@ -464,6 +464,11 @@ def register(mcp: FastMCP) -> None:
                 f"via File > Import > Specctra Session ({_relative_project_path(dsn_file)}).\n"
                 f"SES path checked: {ses_path_obj}"
             )
+
+        try:
+            staged = runner.import_ses(pcb_file, ses_path_obj)
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            return f"FreeRouting autoroute failed while staging the SES file: {exc}"
 
         ignore_text = ", ".join(net_classes_to_ignore or []) or "none"
         return (
