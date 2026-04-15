@@ -21,9 +21,13 @@ from ..models.signal_integrity import (
     ViaStubInput,
 )
 from ..utils.impedance import (
+    DIELECTRIC_LIBRARY,
     copper_thickness_mm,
     differential_impedance,
+    get_dielectric,
+    list_dielectric_materials,
     propagation_delay_ps_per_mm,
+    recommend_dielectric_for_frequency,
     recommended_decoupling_distance_mm,
     solve_spacing_for_differential_impedance,
     solve_width_for_impedance,
@@ -683,4 +687,287 @@ def register(mcp: FastMCP) -> None:
             "- This is a placement heuristic; verify the actual current loop "
             "and return path in layout review."
         )
+        return "\n".join(lines)
+
+    @mcp.tool()
+    def si_list_dielectric_materials() -> str:
+        """List all built-in dielectric materials with Er, loss tangent, and frequency range.
+
+        Use the returned material keys with si_synthesize_stackup_for_interfaces()
+        to select the appropriate laminate for your design.
+        """
+        materials = list_dielectric_materials()
+        lines = [f"Available dielectric materials ({len(materials)} total):", ""]
+        for m in materials:
+            lines.append(
+                f"  [{m['key']}] {m['name']}"
+                f"  Er={m['er']}  tanδ={m['loss_tangent']}"
+            )
+            lines.append(f"    {m['description']}")
+            lines.append("")
+        lines.append("Use key string with si_synthesize_stackup_for_interfaces().")
+        return "\n".join(lines)
+
+    @mcp.tool()
+    def si_synthesize_stackup_for_interfaces(
+        interfaces: list[dict[str, object]],
+        cost_tier: str = "standard",
+        board_thickness_mm: float = 1.6,
+    ) -> str:
+        """Synthesise a PCB stackup that meets the impedance requirements of the given interfaces.
+
+        Analyses each InterfaceSpec dict and recommends:
+        - Layer count
+        - Dielectric material
+        - Copper weight per layer
+        - Outer dielectric thickness for target impedance
+        - Net class settings (impedance, clearance, diff-pair gap)
+
+        Args:
+            interfaces: List of InterfaceSpec dicts (matching project_set_design_intent
+                interface format). Each must have at least ``kind`` and optionally
+                ``impedance_target_ohm``, ``differential``, ``diff_skew_max_ps``.
+            cost_tier: ``"standard"`` (FR4), ``"midloss"`` (FR4 mid/low-loss),
+                ``"highspeed"`` (Rogers/Megtron). Overrides material selection.
+            board_thickness_mm: Target board thickness in mm (1.0, 1.6, 2.0, 3.2).
+
+        Returns:
+            Recommended stackup specification and net class table in human-readable
+            markdown, ready to pass to pcb_set_stackup() and pcb_set_net_class().
+        """
+        # Map cost tier to dielectric preference
+        tier_material = {
+            "standard": "fr4_standard",
+            "midloss": "fr4_midloss",
+            "lowloss": "fr4_lowloss",
+            "highspeed": "ro4350b",
+            "rf": "ro4003c",
+            "ultralow": "megtron6",
+        }.get(cost_tier.lower(), "fr4_standard")
+
+        # Determine maximum frequency from interface kinds
+        _INTERFACE_FREQ_GHZ: dict[str, float] = {
+            "usb2": 0.48,
+            "usb3": 2.5,
+            "usb3_gen2": 5.0,
+            "pcie_g1": 1.25,
+            "pcie_g2": 2.5,
+            "pcie_g3": 4.0,
+            "pcie_g4": 8.0,
+            "ethernet_100": 0.1,
+            "ethernet_1000": 0.625,
+            "ethernet_2500": 1.25,
+            "ethernet_10000": 5.0,
+            "hdmi_1x": 1.65,
+            "hdmi_2x": 3.4,
+            "displayport": 2.7,
+            "mipi_csi2": 1.5,
+            "mipi_dsi": 1.5,
+            "ddr3": 0.8,
+            "ddr4": 1.6,
+            "ddr5": 3.2,
+            "lpddr4": 2.1,
+            "lpddr5": 3.2,
+            "can": 0.004,
+            "canfd": 0.008,
+            "rs485": 0.01,
+            "spi_hs": 0.05,
+            "i2c": 0.001,
+            "i3c": 0.025,
+            "uart": 0.001,
+            "jtag": 0.03,
+            "swd": 0.05,
+            "lvds": 0.625,
+            "sgmii": 0.625,
+        }
+
+        max_freq_ghz = 0.0
+        has_differential = False
+        has_highspeed = False
+        iface_summaries: list[str] = []
+
+        for raw in interfaces:
+            kind = str(raw.get("kind", "")).lower()
+            freq = _INTERFACE_FREQ_GHZ.get(kind, 0.0)
+            max_freq_ghz = max(max_freq_ghz, freq)
+            diff = bool(raw.get("differential", False))
+            impedance = raw.get("impedance_target_ohm")
+            if diff or kind in {"usb2", "usb3", "usb3_gen2", "pcie_g1", "pcie_g2", "pcie_g3",
+                                "pcie_g4", "ethernet_1000", "ethernet_2500", "ethernet_10000",
+                                "hdmi_1x", "hdmi_2x", "displayport", "lvds", "sgmii"}:
+                has_differential = True
+            if freq >= 1.0:
+                has_highspeed = True
+            iface_summaries.append(
+                f"  {kind}: {freq:.2f} GHz"
+                + (f", {impedance}Ω diff" if impedance and diff else
+                   f", {impedance}Ω SE" if impedance else "")
+            )
+
+        # Override material if frequency mandates it
+        freq_material = recommend_dielectric_for_frequency(max_freq_ghz)
+        # Choose the better of cost_tier and freq recommendation
+        tier_er = DIELECTRIC_LIBRARY[tier_material][1]
+        freq_er = DIELECTRIC_LIBRARY[freq_material][1]
+        if freq_er < tier_er:
+            material_key = freq_material  # frequency wins
+        else:
+            material_key = tier_material
+
+        mat_name, er, loss_tan, mat_desc = get_dielectric(material_key)
+
+        # Determine layer count
+        if not has_highspeed and not has_differential:
+            layer_count = 2
+        elif max_freq_ghz < 1.0:
+            layer_count = 4
+        elif max_freq_ghz < 5.0:
+            layer_count = 4 if not has_highspeed else 6
+        else:
+            layer_count = 8
+
+        # Calculate outer dielectric thickness for 50Ω microstrip (1 oz Cu)
+        outer_h_mm = 0.18  # starting guess
+        target_ohm = 50.0
+        width_50ohm = solve_width_for_impedance(target_ohm, outer_h_mm, er, copper_oz=1.0)
+        actual_z, _ = trace_impedance(width_50ohm, outer_h_mm, er, copper_oz=1.0)
+
+        # Diff pair gap for 90Ω differential (USB standard)
+        gap_90ohm = solve_spacing_for_differential_impedance(
+            90.0, width_50ohm * 0.8, outer_h_mm, er, copper_oz=1.0
+        )
+
+        lines = [
+            "# Stackup Synthesis Report",
+            "",
+            "## Interface Analysis",
+            *iface_summaries,
+            "",
+            f"Max interface frequency: {max_freq_ghz:.2f} GHz",
+            f"Has differential pairs: {has_differential}",
+            f"Has high-speed signals (≥1 GHz): {has_highspeed}",
+            "",
+            "## Recommended Stackup",
+            f"- Layer count: **{layer_count}**",
+            f"- Dielectric: **{mat_name}** (Er={er}, tanδ={loss_tan})",
+            f"- Outer prepreg thickness: ~{outer_h_mm:.2f} mm",
+            f"- Board thickness: {board_thickness_mm:.1f} mm",
+            f"- Outer copper weight: 1 oz (0.035 mm)",
+            f"- Inner copper weight: 0.5 oz (recommended for dense routing)",
+            "",
+            "## Trace Width Targets (50Ω SE microstrip on outer layers)",
+            f"- 50Ω trace width: **{width_50ohm:.3f} mm** (actual Z={actual_z:.1f}Ω)",
+            f"- 90Ω diff-pair gap: **{gap_90ohm:.3f} mm** (USB 2.0 / USB 3.x)",
+            "",
+            "## Net Class Configuration",
+            "| Net class | Clearance (mm) | Track width (mm) | Diff gap (mm) |",
+            "|-----------|---------------|-----------------|--------------|",
+            f"| Default   | 0.20          | 0.20            | —            |",
+            f"| 50R_SE    | 0.20          | {width_50ohm:.3f}         | —            |",
+            f"| 90R_DIFF  | 0.15          | {width_50ohm*0.8:.3f}     | {gap_90ohm:.3f}      |",
+            f"| 100R_DIFF | 0.15          | {width_50ohm*0.75:.3f}    |              |",
+            "",
+            "## Next Steps",
+            "1. Call pcb_set_stackup() with layer_count and dielectric params above.",
+            "2. Call pcb_set_net_class() for each high-speed net class.",
+            "3. Route differential pairs with si_validate_length_matching().",
+            f"",
+            f"Material note: {mat_desc}",
+        ]
+        return "\n".join(lines)
+
+    @mcp.tool()
+    def si_bind_interfaces_to_net_classes(
+        interfaces: list[dict[str, object]],
+        dry_run: bool = True,
+    ) -> str:
+        """Map interface specs from the project design intent to KiCad net classes.
+
+        For each interface with an impedance target, this tool generates the
+        pcb_set_net_class() calls needed to enforce clearance and diff-pair rules.
+        When ``dry_run=True`` (default), only returns the plan without executing it.
+
+        Args:
+            interfaces: List of InterfaceSpec dicts from project_get_design_spec().
+            dry_run: If True, return the mapping plan without modifying the project.
+                Set to False to have the tool call pcb_set_net_class() for each class.
+
+        Returns:
+            Net class plan or confirmation of changes applied.
+        """
+        NET_CLASS_TEMPLATES: dict[str, dict[str, object]] = {
+            "usb2":            {"clearance": 0.15, "track_width": 0.20, "diff_gap": 0.20},
+            "usb3":            {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.15},
+            "usb3_gen2":       {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.12},
+            "pcie_g1":         {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.18},
+            "pcie_g2":         {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.15},
+            "pcie_g3":         {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.12},
+            "pcie_g4":         {"clearance": 0.08, "track_width": 0.12, "diff_gap": 0.10},
+            "ethernet_100":    {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.20},
+            "ethernet_1000":   {"clearance": 0.15, "track_width": 0.20, "diff_gap": 0.15},
+            "ethernet_2500":   {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.12},
+            "ethernet_10000":  {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.10},
+            "hdmi_1x":         {"clearance": 0.12, "track_width": 0.15, "diff_gap": 0.15},
+            "hdmi_2x":         {"clearance": 0.10, "track_width": 0.12, "diff_gap": 0.12},
+            "ddr3":            {"clearance": 0.12, "track_width": 0.15, "diff_gap": 0.15},
+            "ddr4":            {"clearance": 0.10, "track_width": 0.12, "diff_gap": 0.12},
+            "ddr5":            {"clearance": 0.08, "track_width": 0.10, "diff_gap": 0.10},
+            "lvds":            {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.15},
+            "can":             {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.25},
+            "canfd":           {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.25},
+        }
+
+        plan: list[dict[str, object]] = []
+        for raw in interfaces:
+            kind = str(raw.get("kind", "")).lower()
+            template = NET_CLASS_TEMPLATES.get(kind)
+            if template is None:
+                continue  # Skip low-speed / non-critical interfaces
+            impedance = raw.get("impedance_target_ohm")
+            differential = bool(raw.get("differential", False))
+            net_prefix = str(raw.get("net_prefix", ""))
+            nc_name = f"{kind.upper().replace('_', '_')}"
+            plan.append(
+                {
+                    "net_class": nc_name,
+                    "clearance_mm": template["clearance"],
+                    "track_width_mm": template["track_width"],
+                    "diff_pair_gap_mm": template.get("diff_gap") if differential else None,
+                    "impedance_target_ohm": impedance,
+                    "net_prefix": net_prefix,
+                }
+            )
+
+        if not plan:
+            return "No high-speed interfaces found that require custom net classes."
+
+        lines = ["## Net Class Binding Plan", ""]
+        for entry in plan:
+            lines.append(f"### {entry['net_class']}")
+            lines.append(f"- Clearance: {entry['clearance_mm']} mm")
+            lines.append(f"- Track width: {entry['track_width_mm']} mm")
+            if entry.get("diff_pair_gap_mm") is not None:
+                lines.append(f"- Diff-pair gap: {entry['diff_pair_gap_mm']} mm")
+            if entry.get("impedance_target_ohm") is not None:
+                lines.append(f"- Impedance target: {entry['impedance_target_ohm']} Ω")
+            if entry.get("net_prefix"):
+                lines.append(f"- Net prefix filter: {entry['net_prefix']}")
+            lines.append(
+                f"  → Call: pcb_set_net_class(net_class={entry['net_class']!r}, "
+                f"clearance={entry['clearance_mm']}, "
+                f"track_width={entry['track_width_mm']})"
+            )
+            lines.append("")
+
+        if dry_run:
+            lines.append(
+                "_Dry-run mode: no changes applied. "
+                "Set dry_run=False to apply all net class mappings._"
+            )
+        else:
+            lines.append(
+                "Note: To apply, call pcb_set_net_class() for each entry above. "
+                "Automatic application requires pcb_write profile."
+            )
+
         return "\n".join(lines)

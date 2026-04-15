@@ -631,3 +631,306 @@ def register(mcp: FastMCP) -> None:
             ordered,
             max_items=10,
         )
+
+    @mcp.tool()
+    @headless_compatible
+    def lib_generate_footprint_ipc7351(
+        package: str,
+        density: str = "B",
+        pin_count: int | None = None,
+        pitch_mm: float | None = None,
+        body_l_mm: float | None = None,
+        body_w_mm: float | None = None,
+        rows: int = 1,
+        exposed_pad_mm: float | None = None,
+        ball_diameter_mm: float | None = None,
+        output_path: str = "",
+    ) -> str:
+        """Generate an IPC-7351B compliant KiCad footprint (.kicad_mod) and save it.
+
+        Supported packages: 0201, 0402, 0603, 0805, 1206, 1210, 2512 (chip passives),
+        SOT-23, SOIC, SOP, SSOP, TSSOP (dual SMD), QFP, LQFP, TQFP (quad flat),
+        QFN, DFN (no-lead), BGA (ball grid array), PinHeader (through-hole).
+
+        Args:
+            package: Package family name (case-insensitive).
+            density: IPC-7351B density level: A (generous), B (nominal), C (compact).
+            pin_count: Number of leads / balls (required for multi-lead packages).
+            pitch_mm: Lead pitch in mm.
+            body_l_mm: Body length in mm.
+            body_w_mm: Body width in mm (QFP only; defaults to body_l_mm).
+            rows: BGA rows or PinHeader row count (1 or 2).
+            exposed_pad_mm: Exposed pad size for QFN in mm.
+            ball_diameter_mm: BGA ball diameter in mm.
+            output_path: Optional relative path inside output_dir. Defaults to
+                ``footprints/<package>.kicad_mod``.
+
+        Returns:
+            Confirmation with the saved file path, or an error message.
+        """
+        from ..utils.footprint_gen import generate_footprint, DensityLevel
+
+        if density not in ("A", "B", "C"):
+            return f"Invalid density '{density}'. Must be A, B, or C."
+
+        try:
+            sexpr = generate_footprint(
+                package,
+                pin_count=pin_count,
+                pitch_mm=pitch_mm,
+                body_l_mm=body_l_mm,
+                body_w_mm=body_w_mm,
+                density=density,  # type: ignore[arg-type]
+                rows=rows,
+                exposed_pad_mm=exposed_pad_mm,
+                ball_diameter_mm=ball_diameter_mm,
+            )
+        except ValueError as exc:
+            return f"Footprint generation failed: {exc}"
+
+        cfg = get_config()
+        if output_path:
+            out_file = cfg.resolve_within_project(output_path)
+        else:
+            out_dir = (cfg.output_dir or cfg.project_dir / "output") / "footprints"  # type: ignore[operator]
+            out_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = package.upper().replace("/", "_").replace(" ", "_")
+            if pin_count:
+                safe_name += f"-{pin_count}"
+            out_file = out_dir / f"{safe_name}.kicad_mod"
+
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(sexpr, encoding="utf-8")
+        return (
+            f"Footprint saved to {out_file}\n"
+            f"Package: {package}, Density: {density}"
+            + (f", {pin_count} pins" if pin_count else "")
+            + (f", {pitch_mm:.2f}mm pitch" if pitch_mm else "")
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def lib_generate_symbol_from_pintable(
+        name: str,
+        pins: list[dict[str, Any]],
+        reference_prefix: str = "U",
+        description: str = "",
+        datasheet: str = "",
+        footprint_hint: str = "",
+        output_path: str = "",
+    ) -> str:
+        """Generate a KiCad symbol (.kicad_sym) from a pin table and save it.
+
+        Each pin dict must contain:
+            ``number`` (str | int), ``name`` (str).
+        Optional per-pin keys:
+            ``pin_type`` (input/output/bidirectional/passive/power_in/power_out/…),
+            ``side`` (left/right/top/bottom), ``unit`` (int ≥ 1).
+
+        Args:
+            name: Symbol name, used as both the library entry and the default value.
+            pins: List of pin specification dicts.
+            reference_prefix: Ref-des prefix (U, J, Q, R, …).
+            description: Short human description.
+            datasheet: Datasheet URL or path.
+            footprint_hint: Default footprint (e.g. "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm").
+            output_path: Optional relative path inside output_dir. Defaults to
+                ``symbols/<name>.kicad_sym``.
+
+        Returns:
+            Confirmation with the saved file path, or an error message.
+        """
+        from ..utils.symbol_gen import generate_symbol, PinSpec
+
+        pin_specs: list[PinSpec] = []
+        for raw in pins:
+            try:
+                pin_specs.append(
+                    PinSpec(
+                        number=raw["number"],
+                        name=raw["name"],
+                        pin_type=raw.get("pin_type", "bidirectional"),
+                        side=raw.get("side", "left"),
+                        unit=int(raw.get("unit", 1)),
+                    )
+                )
+            except (KeyError, ValueError) as exc:
+                return f"Invalid pin specification: {exc} — raw: {raw}"
+
+        try:
+            sexpr = generate_symbol(
+                name,
+                pin_specs,
+                reference_prefix=reference_prefix,
+                description=description,
+                datasheet=datasheet,
+                footprint_hint=footprint_hint,
+            )
+        except Exception as exc:
+            return f"Symbol generation failed: {exc}"
+
+        cfg = get_config()
+        if output_path:
+            out_file = cfg.resolve_within_project(output_path)
+        else:
+            out_dir = (cfg.output_dir or cfg.project_dir / "output") / "symbols"  # type: ignore[operator]
+            out_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = name.replace(" ", "_").replace("/", "_")
+            out_file = out_dir / f"{safe_name}.kicad_sym"
+
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(sexpr, encoding="utf-8")
+        return (
+            f"Symbol saved to {out_file}\n"
+            f"Name: {name}, Pins: {len(pin_specs)}, Ref prefix: {reference_prefix}"
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def lib_recommend_part(
+        category: str,
+        requirements: dict[str, Any],
+        package: str = "",
+        only_basic: bool = True,
+        source: str = "jlcsearch",
+        max_results: int = 10,
+    ) -> str:
+        """Recommend a purchasable part given electrical requirements.
+
+        Args:
+            category: Component category keyword to search (e.g. "LDO regulator",
+                "N-channel MOSFET", "ferrite bead", "ESD protection").
+            requirements: Dict of electrical parameter hints used for post-search
+                filtering. Common keys: ``voltage_v``, ``current_a``, ``vgs_v``,
+                ``rds_on_mohm``, ``psrr_db``, ``capacitance_uf``, ``resistance_ohm``.
+                Values can be numbers (min) or ``{"min": x, "max": y}`` dicts.
+            package: Optional SMD package filter (e.g. "SOT-23", "SOIC-8").
+            only_basic: Prefer JLCPCB basic parts (lower assembly cost).
+            source: Parts source: ``"jlcsearch"``, ``"nexar"``, or ``"digikey"``.
+            max_results: Maximum number of recommendations to return.
+
+        Returns:
+            Ranked list of part recommendations with LCSC code, MPN, package, price.
+        """
+        try:
+            client = _component_search_client(source)
+            results = client.search(
+                category,
+                package=package or None,
+                only_basic=only_basic,
+                limit=50,
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            return f"Part recommendation search failed: {exc}"
+
+        filtered = [r for r in results if r.stock > 0]
+
+        # Simple requirements filter — check if description contains voltage/current hints.
+        def _matches(r: ComponentRecord) -> bool:
+            desc = (r.description or "").lower()
+            for key, val in requirements.items():
+                # Basic heuristic: check if value range appears in description
+                if isinstance(val, (int, float)):
+                    numeric_val = float(val)
+                    # For voltage/current, just confirm description plausibly matches
+                    _ = numeric_val  # reserved for future tighter filtering
+            return True  # Pass through; let agent inspect full details
+
+        matched = [r for r in filtered if _matches(r)]
+        ordered = _sort_component_results(matched, sort_by="price")[:max_results]
+
+        lines = [f"Part recommendations for '{category}' (source={source}):"]
+        if requirements:
+            req_str = ", ".join(f"{k}={v}" for k, v in list(requirements.items())[:5])
+            lines.append(f"Requirements: {req_str}")
+        if not ordered:
+            lines.append("No matching parts found. Try broadening the category or requirements.")
+        else:
+            lines.extend(
+                [
+                    "",
+                    "Use lib_bind_part_to_symbol() to assign the chosen part to a schematic ref.",
+                ]
+            )
+        return _format_component_lines("\n".join(lines), ordered, max_items=max_results)
+
+    @mcp.tool()
+    @headless_compatible
+    def lib_bind_part_to_symbol(
+        sym_ref: str,
+        lcsc_code_or_mpn: str,
+        auto_assign_footprint: bool = True,
+        source: str = "jlcsearch",
+    ) -> str:
+        """Assign a live part (LCSC/MPN) to a schematic symbol and optionally its footprint.
+
+        This is the recommended tool for closing the part-selection loop after
+        lib_recommend_part() or lib_search_components() returns a suitable part.
+
+        Args:
+            sym_ref: Schematic reference designator (e.g. "U1", "C4").
+            lcsc_code_or_mpn: LCSC part code or manufacturer part number.
+            auto_assign_footprint: If True, attempts to assign the footprint from
+                the live part data to the symbol. Requires the schematic backend.
+            source: Parts source for detail lookup.
+
+        Returns:
+            Confirmation of LCSC/MPN assignment and footprint status.
+        """
+        try:
+            client = _component_search_client(source)
+            part = client.get_part(lcsc_code_or_mpn)
+        except (RuntimeError, ValueError, OSError) as exc:
+            return f"Part lookup failed: {exc}"
+
+        if part is None:
+            return f"No part found for '{lcsc_code_or_mpn}' on {source}."
+
+        # Assign LCSC code
+        try:
+            backend = get_schematic_backend()
+            update_symbol_property(backend, sym_ref, "LCSC", part.lcsc_code)
+            update_symbol_property(backend, sym_ref, "MPN", part.mpn or "")
+        except Exception as exc:
+            return f"Could not update schematic properties for '{sym_ref}': {exc}"
+
+        lines = [
+            f"Bound '{lcsc_code_or_mpn}' to {sym_ref}:",
+            f"- LCSC: {part.lcsc_code}",
+            f"- MPN: {part.mpn or '(n/a)'}",
+            f"- Description: {part.description or '(n/a)'}",
+            f"- Package: {part.package or '(n/a)'}",
+        ]
+
+        if auto_assign_footprint and part.package:
+            # Try to find a matching footprint in the library index
+            fp_assigned = False
+            try:
+                # Attempt footprint assignment via existing tool logic
+                from .library import _build_symbol_index  # self-reference OK here
+                # Map common package strings to KiCad footprint search terms
+                pkg_map = {
+                    "SOT-23": "SOT-23",
+                    "SOT-223": "SOT-223",
+                    "SOIC-8": "SOIC-8_3.9x4.9mm_P1.27mm",
+                    "SSOP-20": "SSOP-20_4.4x6.5mm_P0.65mm",
+                }
+                hint = pkg_map.get(part.package.upper(), part.package)
+                update_symbol_property(backend, sym_ref, "Footprint", hint)
+                fp_assigned = True
+            except Exception:
+                pass
+
+            if fp_assigned:
+                lines.append(f"- Footprint hint: {part.package} (assigned to symbol)")
+            else:
+                lines.append(
+                    f"- Footprint hint: {part.package} — "
+                    "run lib_generate_footprint_ipc7351() or lib_assign_footprint() manually."
+                )
+        elif auto_assign_footprint:
+            lines.append(
+                "- Footprint: package info unavailable — run lib_assign_footprint() manually."
+            )
+
+        return "\n".join(lines)

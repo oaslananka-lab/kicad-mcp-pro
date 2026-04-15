@@ -41,6 +41,7 @@ from ..utils.sexpr import (
     _sexpr_string,
     _unescape_sexpr_string,
 )
+from .metadata import headless_compatible
 
 SCHEMATIC_GRID_MM = 2.54
 SNAP_TOLERANCE_MM = 1e-6
@@ -3132,3 +3133,245 @@ def register(mcp: FastMCP) -> None:
             f"{result}\nAuto-placed {placed} symbol(s) using the {payload.strategy} strategy."
             f"{missing_suffix}"
         )
+
+    # -----------------------------------------------------------------------
+    # Subcircuit template tools (v2.1.0)
+    # -----------------------------------------------------------------------
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_list_templates() -> str:
+        """List all available reference subcircuit templates.
+
+        Templates are pre-wired subcircuit blueprints for common building blocks
+        (buck converter, LDO, USB Type-C, MCU decoupling, Ethernet with magnetics).
+
+        Call sch_get_template_info() for full parameter and placement details,
+        then sch_instantiate_template() to add the subcircuit to the schematic.
+        """
+        import importlib.resources
+        from pathlib import Path as _Path
+
+        templates_dir = _Path(__file__).parent.parent / "templates" / "subcircuits"
+        if not templates_dir.exists():
+            return "No subcircuit templates are available."
+
+        import yaml  # optional dep — graceful fallback
+
+        lines = ["# Available Subcircuit Templates", ""]
+        for yaml_file in sorted(templates_dir.glob("*.yaml")):
+            try:
+                with yaml_file.open(encoding="utf-8") as fh:
+                    data = yaml.safe_load(fh)
+                name = data.get("name", yaml_file.stem)
+                desc = str(data.get("description", "")).strip().split("\n")[0][:80]
+                params = list(data.get("parameters", {}).keys())
+                lines.append(f"**{name}**")
+                lines.append(f"  {desc}")
+                if params:
+                    lines.append(f"  Parameters: {', '.join(params)}")
+                lines.append("")
+            except Exception:
+                lines.append(f"**{yaml_file.stem}** — (could not parse template)")
+                lines.append("")
+
+        if len(lines) == 2:
+            return "No subcircuit templates were found."
+
+        lines.append("Use sch_instantiate_template(template_name, prefix, params) to add.")
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_get_template_info(template_name: str) -> str:
+        """Return full details for a subcircuit template.
+
+        Args:
+            template_name: Template name as returned by sch_list_templates()
+                (e.g. ``"buck_converter_generic"``).
+
+        Returns:
+            Structured template description including parameters, symbols,
+            nets, and placement hints.
+        """
+        from pathlib import Path as _Path
+
+        templates_dir = _Path(__file__).parent.parent / "templates" / "subcircuits"
+        yaml_file = templates_dir / f"{template_name}.yaml"
+        if not yaml_file.exists():
+            available = [f.stem for f in templates_dir.glob("*.yaml")]
+            return (
+                f"Template '{template_name}' not found. "
+                f"Available: {', '.join(sorted(available))}"
+            )
+
+        try:
+            import yaml
+            with yaml_file.open(encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+        except Exception as exc:
+            return f"Could not parse template '{template_name}': {exc}"
+
+        lines = [
+            f"# Template: {data.get('name', template_name)}",
+            f"Version: {data.get('version', '1.0')}",
+            "",
+            data.get("description", "").strip(),
+            "",
+        ]
+
+        params = data.get("parameters", {})
+        if params:
+            lines += ["## Parameters", ""]
+            for pname, pdef in params.items():
+                lines.append(
+                    f"- **{pname}** ({pdef.get('type', 'any')}): "
+                    f"{pdef.get('description', '')} "
+                    f"[default: {pdef.get('default', '—')}]"
+                )
+            lines.append("")
+
+        symbols = data.get("symbols", [])
+        if symbols:
+            lines += [f"## Symbols ({len(symbols)})", ""]
+            for sym in symbols:
+                lines.append(
+                    f"- **{sym.get('ref_prefix', '?')}?** "
+                    f"{sym.get('value', '?')} — {sym.get('comment', '')}"
+                )
+            lines.append("")
+
+        nets = data.get("nets", [])
+        if nets:
+            lines += ["## Nets", ""]
+            for net in nets:
+                note = f" — {net['note']}" if net.get("note") else ""
+                lines.append(f"- `{net['name']}` ({net.get('type', 'signal')}){note}")
+            lines.append("")
+
+        hints = data.get("placement_hints", [])
+        if hints:
+            lines += ["## Placement Hints", ""]
+            for hint in hints:
+                lines.append(f"- {hint}")
+            lines.append("")
+
+        search = data.get("part_search_hints", {})
+        if search:
+            lines += ["## Part Search Hints (use with lib_recommend_part())", ""]
+            for role, query in search.items():
+                lines.append(f"- {role}: `{query}`")
+
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_instantiate_template(
+        template_name: str,
+        prefix: str = "",
+        params: dict[str, object] | None = None,
+    ) -> str:
+        """Instantiate a subcircuit template — returns a structured action plan.
+
+        This tool returns a structured plan describing the symbols, connections,
+        and part-search steps needed to add the subcircuit to the schematic.
+        It does NOT directly edit the schematic (use the plan as a guide for
+        calling sch_add_symbol, sch_add_wire, lib_recommend_part, etc.).
+
+        Args:
+            template_name: Template name (from sch_list_templates()).
+            prefix: Reference prefix applied to all template refs (e.g. ``"PWR_"``
+                produces ``PWR_U1``, ``PWR_L1``, etc.).
+            params: Dict of parameter overrides (e.g. ``{"vout_v": 5.0}``).
+
+        Returns:
+            Step-by-step instantiation plan in markdown format.
+        """
+        from pathlib import Path as _Path
+
+        templates_dir = _Path(__file__).parent.parent / "templates" / "subcircuits"
+        yaml_file = templates_dir / f"{template_name}.yaml"
+        if not yaml_file.exists():
+            available = [f.stem for f in templates_dir.glob("*.yaml")]
+            return (
+                f"Template '{template_name}' not found. "
+                f"Available: {', '.join(sorted(available))}"
+            )
+
+        try:
+            import yaml
+            with yaml_file.open(encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+        except Exception as exc:
+            return f"Could not parse template '{template_name}': {exc}"
+
+        params = params or {}
+        defaults = {
+            k: v.get("default") for k, v in data.get("parameters", {}).items()
+        }
+        resolved = {**defaults, **params}
+
+        symbols = data.get("symbols", [])
+        nets = data.get("nets", [])
+        hints = data.get("placement_hints", [])
+        search = data.get("part_search_hints", {})
+        prefix_str = prefix.strip()
+
+        lines = [
+            f"# Instantiation Plan: {data.get('name', template_name)}",
+            f"Prefix: `{prefix_str or '(none)'}`",
+            "",
+            "## Parameters",
+        ]
+        for k, v in resolved.items():
+            lines.append(f"- {k}: **{v}**")
+
+        lines += [
+            "",
+            "## Step 1: Add Symbols",
+            "Call sch_add_symbol() for each symbol below:",
+            "",
+        ]
+        for i, sym in enumerate(symbols, start=1):
+            ref = f"{prefix_str}{sym.get('ref_prefix', 'X')}{i}"
+            lines.append(
+                f"- `sch_add_symbol(reference={ref!r}, value={sym.get('value', '?')!r})`"
+            )
+            lines.append(f"  Comment: {sym.get('comment', '')}")
+            lines.append(f"  Footprint hint: {sym.get('default_footprint', '—')}")
+
+        lines += [
+            "",
+            "## Step 2: Add Nets / Wires",
+            "Call sch_add_power_symbol() and sch_add_wire() to connect:",
+            "",
+        ]
+        for net in nets:
+            note = f" ({net['note']})" if net.get("note") else ""
+            lines.append(f"- `{net['name']}` — {net.get('type', 'signal')}{note}")
+
+        lines += ["", "## Step 3: Part Selection"]
+        if search:
+            for role, query_template in search.items():
+                query = str(query_template)
+                for k, v in resolved.items():
+                    query = query.replace(f"{{{k}}}", str(v))
+                lines.append(
+                    f"- **{role}**: `lib_recommend_part(category={query!r})`"
+                )
+        else:
+            lines.append(
+                "- Use lib_search_components() or lib_recommend_part() for each symbol."
+            )
+
+        lines += [
+            "",
+            "## Step 4: Footprint Assignment",
+            "For each symbol: `lib_bind_part_to_symbol(sym_ref, lcsc_code, auto_assign_footprint=True)`",
+            "",
+            "## Placement Hints",
+        ]
+        for hint in hints:
+            lines.append(f"- {hint}")
+
+        return "\n".join(lines)

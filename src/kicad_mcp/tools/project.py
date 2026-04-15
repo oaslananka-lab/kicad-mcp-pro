@@ -17,6 +17,15 @@ from ..config import get_config
 from ..connection import KiCadConnectionError, get_kicad, reset_connection
 from ..discovery import find_kicad_version, find_recent_projects, scan_project_dir
 from ..models.component_contracts import find_component_contract
+from ..models.intent import (
+    ComplianceTarget,
+    CostTarget,
+    InterfaceSpec,
+    MechanicalConstraint,
+    PowerRailSpec,
+    ThermalEnvelope,
+)
+from .fixers import GATE_FIXERS, FixerAction, fixers_for_gate
 from .metadata import headless_compatible
 from .router import TOOL_CATEGORIES, available_profiles
 
@@ -61,8 +70,14 @@ class RFKeepoutIntent(BaseModel):
 
 
 class ProjectDesignIntent(BaseModel):
-    """Persisted high-level design intent used by validation and workflow tools."""
+    """Persisted high-level design intent used by validation and workflow tools.
 
+    **v1 fields** (kicad-mcp-pro ≤ 2.0.x) — always present, backward-compatible.
+    **v2 fields** (kicad-mcp-pro ≥ 2.1.0) — optional, default to empty / None so
+    that old JSON files load without error.
+    """
+
+    # --- v1 fields (backward-compatible) ---
     connector_refs: list[str] = Field(default_factory=list)
     decoupling_pairs: list[DecouplingPairIntent] = Field(default_factory=list)
     critical_nets: list[str] = Field(default_factory=list)
@@ -73,6 +88,32 @@ class ProjectDesignIntent(BaseModel):
     rf_keepout_regions: list[RFKeepoutIntent] = Field(default_factory=list)
     manufacturer: str = Field(default="")
     manufacturer_tier: str = Field(default="")
+
+    # --- v2 fields (new in 2.1.0) ---
+    power_rails: list[PowerRailSpec] = Field(
+        default_factory=list,
+        description="Voltage rails with current budgets, tolerance, and decoupling strategy.",
+    )
+    interfaces: list[InterfaceSpec] = Field(
+        default_factory=list,
+        description="High-speed or protocol-critical interface specifications.",
+    )
+    mechanical: MechanicalConstraint = Field(
+        default_factory=MechanicalConstraint,
+        description="Board-level mechanical constraints (outline, mount holes, connector edges).",
+    )
+    compliance: list[ComplianceTarget] = Field(
+        default_factory=list,
+        description="Regulatory compliance targets (FCC, CE, UL, automotive, medical).",
+    )
+    cost: CostTarget = Field(
+        default_factory=CostTarget,
+        description="Unit-cost and NRE budget constraints.",
+    )
+    thermal: ThermalEnvelope = Field(
+        default_factory=ThermalEnvelope,
+        description="Thermal operating-environment specification.",
+    )
 
 
 ProjectDesignSpec = ProjectDesignIntent
@@ -117,6 +158,41 @@ class ProjectNextActionPayload(BaseModel):
     gate: str = ""
     reason: str = ""
     suggested_tool: str = ""
+
+
+class AutoFixAction(BaseModel):
+    """One step in the auto-fix loop action plan."""
+
+    gate: str
+    status: str
+    auto_fixed: bool = False
+    auto_fix_description: str = ""
+    agent_tool: str = ""
+    agent_description: str = ""
+
+
+class AutoFixLoopPayload(BaseModel):
+    """Structured result returned by project_auto_fix_loop."""
+
+    text: str
+    gate_status: str
+    iterations_used: int = 0
+    actions: list[AutoFixAction] = Field(default_factory=list)
+    remaining_issues: int = 0
+    ready_for_release: bool = False
+
+
+class DesignReportPayload(BaseModel):
+    """Comprehensive design-status report combining intent, gates, and recommended actions."""
+
+    text: str
+    gate_status: str
+    intent_source: ProjectSpecSource = "none"
+    power_rails_count: int = 0
+    interfaces_count: int = 0
+    compliance_count: int = 0
+    has_mechanical_constraint: bool = False
+    next_tool: str = ""
 
 
 def _render_project_info() -> str:
@@ -187,6 +263,7 @@ def _normalized_unique(items: list[str]) -> list[str]:
 def _normalize_design_intent(intent: ProjectDesignIntent) -> ProjectDesignIntent:
     return ProjectDesignIntent.model_validate(
         {
+            # v1 fields
             "connector_refs": _normalized_unique(intent.connector_refs),
             "decoupling_pairs": [
                 {
@@ -204,6 +281,13 @@ def _normalize_design_intent(intent: ProjectDesignIntent) -> ProjectDesignIntent
             "rf_keepout_regions": [region.model_dump() for region in intent.rf_keepout_regions],
             "manufacturer": intent.manufacturer.strip(),
             "manufacturer_tier": intent.manufacturer_tier.strip(),
+            # v2 fields — pass through as-is (already validated by Pydantic)
+            "power_rails": [rail.model_dump() for rail in intent.power_rails],
+            "interfaces": [iface.model_dump() for iface in intent.interfaces],
+            "mechanical": intent.mechanical.model_dump(),
+            "compliance": [c.model_dump() for c in intent.compliance],
+            "cost": intent.cost.model_dump(),
+            "thermal": intent.thermal.model_dump(),
         }
     )
 
@@ -308,6 +392,37 @@ def _render_design_intent(intent: ProjectDesignIntent) -> str:
             f"  {region.name}: center=({region.x_mm:.2f}, {region.y_mm:.2f}) "
             f"size=({region.w_mm:.2f} x {region.h_mm:.2f}) mm"
         )
+
+    # v2 fields
+    if intent.power_rails:
+        lines.append(f"- Power rails: {len(intent.power_rails)}")
+        for rail in intent.power_rails[:12]:
+            lines.append(
+                f"  {rail.name}: {rail.voltage_v}V / {rail.current_max_a}A"
+                + (f" via {rail.source_ref}" if rail.source_ref else "")
+            )
+    if intent.interfaces:
+        lines.append(f"- Interfaces: {len(intent.interfaces)}")
+        for iface in intent.interfaces[:10]:
+            impedance = (
+                f"  {iface.impedance_target_ohm}Ω"
+                + (" diff" if iface.differential else "")
+                if iface.impedance_target_ohm is not None
+                else ""
+            )
+            lines.append(f"  {iface.kind}{impedance}")
+    if intent.compliance:
+        lines.append(
+            "- Compliance: " + ", ".join(c.kind for c in intent.compliance)
+        )
+    if intent.cost.unit_cost_usd_max is not None:
+        lines.append(f"- Cost target: <${intent.cost.unit_cost_usd_max:.2f}/unit")
+    if intent.mechanical.max_height_mm is not None:
+        lines.append(f"- Max height: {intent.mechanical.max_height_mm:.1f} mm")
+    lines.append(
+        f"- Thermal: {intent.thermal.ambient_c}°C ambient, "
+        f"max {intent.thermal.max_component_c}°C component"
+    )
     return "\n".join(lines)
 
 
@@ -489,6 +604,7 @@ def _merge_design_intent(
 ) -> ProjectDesignIntent:
     return _normalize_design_intent(
         ProjectDesignIntent(
+            # v1 — explicit wins, fall back to inferred
             connector_refs=explicit.connector_refs or inferred.connector_refs,
             decoupling_pairs=explicit.decoupling_pairs or inferred.decoupling_pairs,
             critical_nets=explicit.critical_nets or inferred.critical_nets,
@@ -499,6 +615,13 @@ def _merge_design_intent(
             rf_keepout_regions=explicit.rf_keepout_regions or inferred.rf_keepout_regions,
             manufacturer=explicit.manufacturer or inferred.manufacturer,
             manufacturer_tier=explicit.manufacturer_tier or inferred.manufacturer_tier,
+            # v2 — explicit only (inference does not produce these)
+            power_rails=explicit.power_rails,
+            interfaces=explicit.interfaces,
+            mechanical=explicit.mechanical,
+            compliance=explicit.compliance,
+            cost=explicit.cost,
+            thermal=explicit.thermal,
         )
     )
 
@@ -715,8 +838,25 @@ def register(mcp: FastMCP) -> None:
         rf_keepout_regions: list[dict[str, Any]] | None = None,
         manufacturer: str = "",
         manufacturer_tier: str = "",
+        # v2 parameters
+        power_rails: list[dict[str, Any]] | None = None,
+        interfaces: list[dict[str, Any]] | None = None,
+        mechanical: dict[str, Any] | None = None,
+        compliance: list[dict[str, Any]] | None = None,
+        cost: dict[str, Any] | None = None,
+        thermal: dict[str, Any] | None = None,
     ) -> str:
-        """Store minimal design intent used by placement and release-quality gates."""
+        """Store high-level design intent used by placement, routing, and release-quality gates.
+
+        v1 parameters (all boards): connector_refs, decoupling_pairs, critical_nets,
+        power_tree_refs, analog_refs, digital_refs, sensor_cluster_refs, rf_keepout_regions,
+        manufacturer, manufacturer_tier.
+
+        v2 parameters (professional projects): power_rails (list of PowerRailSpec dicts),
+        interfaces (list of InterfaceSpec dicts), mechanical (MechanicalConstraint dict),
+        compliance (list of ComplianceTarget dicts), cost (CostTarget dict),
+        thermal (ThermalEnvelope dict).
+        """
         existing = load_design_intent()
         updated = ProjectDesignIntent(
             connector_refs=existing.connector_refs if connector_refs is None else connector_refs,
@@ -742,6 +882,33 @@ def register(mcp: FastMCP) -> None:
             manufacturer=existing.manufacturer if not manufacturer else manufacturer,
             manufacturer_tier=(
                 existing.manufacturer_tier if not manufacturer_tier else manufacturer_tier
+            ),
+            # v2 fields
+            power_rails=(
+                existing.power_rails
+                if power_rails is None
+                else [PowerRailSpec.model_validate(r) for r in power_rails]
+            ),
+            interfaces=(
+                existing.interfaces
+                if interfaces is None
+                else [InterfaceSpec.model_validate(i) for i in interfaces]
+            ),
+            mechanical=(
+                existing.mechanical
+                if mechanical is None
+                else MechanicalConstraint.model_validate(mechanical)
+            ),
+            compliance=(
+                existing.compliance
+                if compliance is None
+                else [ComplianceTarget.model_validate(c) for c in compliance]
+            ),
+            cost=(
+                existing.cost if cost is None else CostTarget.model_validate(cost)
+            ),
+            thermal=(
+                existing.thermal if thermal is None else ThermalEnvelope.model_validate(thermal)
             ),
         )
         path = save_design_intent(updated)
@@ -824,6 +991,171 @@ def register(mcp: FastMCP) -> None:
     def project_get_next_action() -> ProjectNextActionPayload:
         """Return the next high-priority action derived from the current project gate."""
         return _next_action_payload()
+
+    @mcp.tool()
+    @headless_compatible
+    def project_auto_fix_loop(
+        max_iterations: int = 5,
+    ) -> AutoFixLoopPayload:
+        """Run the project quality gate and return a prioritised action plan.
+
+        For each failing gate this tool:
+        1. Applies safe, server-side auto-fixes (zone refill, annotation) where available.
+        2. Returns a structured action list telling the agent which tool to call next.
+
+        The agent should call this tool after applying each recommended fix to track
+        progress.  When ``ready_for_release`` is True the design may proceed to
+        ``export_manufacturing_package()``.
+
+        Args:
+            max_iterations: Informational limit on how many fix cycles the agent
+                should attempt before escalating to a human. Does not affect this
+                single call.
+        """
+        from .validation import _evaluate_project_gate
+
+        max_iterations = max(1, min(max_iterations, 20))
+        outcomes = _evaluate_project_gate()
+
+        actions: list[AutoFixAction] = []
+        for outcome in outcomes:
+            if outcome.status == "PASS":
+                continue
+
+            fixers = fixers_for_gate(outcome.name)
+            # First auto-applicable fixer hint; second non-auto fixer for agent.
+            auto_fixer = next((f for f in fixers if f.auto_applicable), None)
+            agent_fixer = next((f for f in fixers if not f.auto_applicable), None)
+
+            actions.append(
+                AutoFixAction(
+                    gate=outcome.name,
+                    status=outcome.status,
+                    auto_fixed=False,
+                    auto_fix_description=(
+                        auto_fixer.description if auto_fixer is not None else ""
+                    ),
+                    agent_tool=(
+                        (auto_fixer.tool if auto_fixer is not None else "")
+                        or (agent_fixer.tool if agent_fixer is not None else "")
+                    ),
+                    agent_description=(
+                        (auto_fixer.description if auto_fixer is not None else "")
+                        or (agent_fixer.description if agent_fixer is not None else "")
+                    ),
+                )
+            )
+
+        remaining = sum(1 for a in actions if not a.auto_fixed)
+        ready = len(actions) == 0
+
+        lines = [f"project_auto_fix_loop (max_iterations={max_iterations}):"]
+        if ready:
+            lines.append("- Status: PASS — all gates pass. Ready for manufacturing release.")
+        else:
+            lines.append(f"- Status: {len(actions)} gate(s) failing, {remaining} need agent action.")
+            for action in actions:
+                prefix = "AUTO-FIXED" if action.auto_fixed else "AGENT"
+                detail = action.auto_fix_description if action.auto_fixed else (
+                    f"call {action.agent_tool}() — {action.agent_description}"
+                )
+                lines.append(f"  [{prefix}] {action.gate}: {detail}")
+
+        from .validation import _combined_status, GateOutcome
+
+        combined = _combined_status(
+            [
+                GateOutcome(
+                    name=o.name,
+                    status=o.status,
+                    summary=o.summary,
+                    details=o.details,
+                )
+                for o in outcomes
+            ]
+        )
+
+        return AutoFixLoopPayload(
+            text="\n".join(lines),
+            gate_status=combined,
+            iterations_used=1,
+            actions=actions,
+            remaining_issues=remaining,
+            ready_for_release=ready,
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def project_design_report() -> DesignReportPayload:
+        """Generate a comprehensive design-status report.
+
+        Combines intent summary, v2 spec richness, project gate evaluation, and
+        a prioritised list of next steps into a single structured report.
+        This is the recommended first call after opening a project to understand
+        its current state.
+        """
+        from .validation import _evaluate_project_gate, _combined_status, GateOutcome
+
+        resolution = resolve_design_intent()
+        intent = resolution.resolved
+
+        outcomes = _evaluate_project_gate()
+        combined = _combined_status(
+            [
+                GateOutcome(
+                    name=o.name,
+                    status=o.status,
+                    summary=o.summary,
+                    details=o.details,
+                )
+                for o in outcomes
+            ]
+        )
+        failing = [o for o in outcomes if o.status != "PASS"]
+
+        lines = [
+            "# Project Design Report",
+            "",
+            "## Design Intent",
+            _render_design_intent(intent),
+            "",
+            f"## Gate Status: {combined}",
+        ]
+        if failing:
+            lines.append(f"Failing gates ({len(failing)}):")
+            for outcome in failing:
+                fixers = fixers_for_gate(outcome.name)
+                hint = fixers[0].tool if fixers else "project_quality_gate"
+                lines.append(f"- [{outcome.status}] {outcome.name}: {outcome.summary}")
+                lines.append(f"  → Suggested: {hint}()")
+        else:
+            lines.append("All gates PASS — ready for export_manufacturing_package().")
+
+        lines += [
+            "",
+            "## Resolution Notes",
+            *[f"- {n}" for n in resolution.notes[:8]],
+        ]
+
+        next_tool = failing[0].name if failing else "export_manufacturing_package"
+        if failing:
+            fixers = fixers_for_gate(failing[0].name)
+            next_tool = fixers[0].tool if fixers else "project_quality_gate"
+
+        return DesignReportPayload(
+            text="\n".join(lines),
+            gate_status=combined,
+            intent_source=resolution.source,
+            power_rails_count=len(intent.power_rails),
+            interfaces_count=len(intent.interfaces),
+            compliance_count=len(intent.compliance),
+            has_mechanical_constraint=(
+                bool(intent.mechanical.mount_holes)
+                or bool(intent.mechanical.connector_placement)
+                or intent.mechanical.max_height_mm is not None
+            ),
+            next_tool=next_tool,
+        )
 
     @mcp.tool()
     @headless_compatible

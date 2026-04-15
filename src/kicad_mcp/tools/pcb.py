@@ -58,6 +58,14 @@ from ..models.pcb import (
 )
 from ..utils.impedance import TraceType, copper_thickness_mm, trace_impedance
 from ..utils.layers import CANONICAL_LAYER_NAMES, resolve_layer, resolve_layer_name
+from ..utils.placement import (
+    BGABall,
+    ForceDirectedConfig,
+    PlacementComponent,
+    PlacementNet,
+    force_directed_placement,
+    generate_bga_fanout_plan,
+)
 from ..utils.sexpr import _extract_block, _sexpr_string
 from ..utils.units import _coord_nm, mm_to_nm, nm_to_mm
 from .metadata import headless_compatible, requires_kicad_running
@@ -3085,3 +3093,132 @@ def register(mcp: FastMCP) -> None:
             current_board.create_items(zones)
             current_board.refill_zones(block=True, max_poll_seconds=60.0)
         return f"Added {len(zones)} teardrop helper zone(s) to the active board."
+
+    # -----------------------------------------------------------------------
+    # Force-directed placement (v2.1.0)
+    # -----------------------------------------------------------------------
+
+    @mcp.tool()
+    @headless_compatible
+    def pcb_auto_place_force_directed(
+        component_positions: list[dict],
+        nets: list[dict],
+        board_width_mm: float = 100.0,
+        board_height_mm: float = 80.0,
+        iterations: int = 300,
+        k_spring: float = 0.4,
+        k_repel: float = 80.0,
+    ) -> str:
+        """Run a force-directed spring-embedder placement algorithm on a set of components.
+
+        This tool computes optimised X/Y positions for components based on their net
+        connectivity without requiring KiCad to be open.  Use it to get a placement
+        suggestion, then apply the result with pcb_move_footprint for each component.
+
+        Args:
+            component_positions: List of component dicts with keys:
+                ref (str), x (float, mm), y (float, mm),
+                w (float, mm, optional default 2), h (float, mm, optional default 2),
+                fixed (bool, optional default false).
+            nets: List of net dicts with keys:
+                name (str), refs (list[str]), weight (float, optional default 1.0).
+            board_width_mm: Soft boundary width in mm (default 100).
+            board_height_mm: Soft boundary height in mm (default 80).
+            iterations: Number of spring-embedder iterations (default 300).
+            k_spring: Spring attraction coefficient (default 0.4).
+            k_repel: Coulomb repulsion coefficient (default 80.0).
+
+        Returns:
+            JSON string with optimised positions for each component.
+        """
+        comps = [
+            PlacementComponent(
+                ref=c["ref"],
+                x=float(c.get("x", 10.0)),
+                y=float(c.get("y", 10.0)),
+                w=float(c.get("w", 2.0)),
+                h=float(c.get("h", 2.0)),
+                fixed=bool(c.get("fixed", False)),
+            )
+            for c in component_positions
+        ]
+        placement_nets = [
+            PlacementNet(
+                name=n["name"],
+                refs=list(n.get("refs", [])),
+                weight=float(n.get("weight", 1.0)),
+            )
+            for n in nets
+        ]
+        cfg = ForceDirectedConfig(
+            iterations=iterations,
+            k_spring=k_spring,
+            k_repel=k_repel,
+            board_w=board_width_mm,
+            board_h=board_height_mm,
+        )
+        result = force_directed_placement(comps, placement_nets, cfg)
+        output = [
+            {"ref": c.ref, "x": round(c.x, 4), "y": round(c.y, 4), "fixed": c.fixed}
+            for c in result
+        ]
+        return json.dumps({"placements": output, "iterations": iterations}, indent=2)
+
+    # -----------------------------------------------------------------------
+    # BGA fanout helper (v2.1.0)
+    # -----------------------------------------------------------------------
+
+    @mcp.tool()
+    @headless_compatible
+    def pcb_bga_fanout(
+        balls: list[dict],
+        pitch_mm: float,
+        via_drill_mm: float = 0.2,
+        via_annular_mm: float = 0.1,
+        escape_layer: str = "In1.Cu",
+        strategy: str = "dog_ear",
+    ) -> str:
+        """Generate a BGA fanout via-placement plan (dog-ear or inline strategy).
+
+        Returns per-ball via coordinates and suggested track widths so the agent
+        can call pcb_add_via and pcb_add_track to physically fanout the BGA.
+        Actual pad coordinates must come from the board footprint (use pcb_get_pads).
+
+        Args:
+            balls: List of ball dicts with keys:
+                row (str, e.g. "A"), col (int, 1-based), net (str),
+                x_mm (float, ball centre X), y_mm (float, ball centre Y).
+            pitch_mm: Ball pitch in mm (e.g. 0.5, 0.65, 0.8, 1.0).
+            via_drill_mm: Via drill diameter in mm (default 0.2).
+            via_annular_mm: Via annular ring width in mm (default 0.1).
+            escape_layer: Inner copper layer to fan out to (default "In1.Cu").
+            strategy: "dog_ear" (diagonal escape, most common) or
+                      "inline" (horizontal escape, for large pitch).
+
+        Returns:
+            JSON string with via placement plan for each ball.
+        """
+        ball_objs = [
+            BGABall(
+                row=str(b["row"]),
+                col=int(b["col"]),
+                net=str(b["net"]),
+                x_mm=float(b.get("x_mm", 0.0)),
+                y_mm=float(b.get("y_mm", 0.0)),
+            )
+            for b in balls
+        ]
+        plan = generate_bga_fanout_plan(
+            ball_objs,
+            pitch_mm=pitch_mm,
+            via_drill_mm=via_drill_mm,
+            via_annular_mm=via_annular_mm,
+            escape_layer=escape_layer,
+            strategy=strategy,
+        )
+        summary = (
+            f"BGA fanout plan: {len(plan)} vias, pitch={pitch_mm}mm, "
+            f"strategy={strategy}, escape_layer={escape_layer}, "
+            f"via={via_drill_mm}mm drill / {via_annular_mm}mm annular."
+        )
+        return json.dumps({"summary": summary, "vias": plan}, indent=2)

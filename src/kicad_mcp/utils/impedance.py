@@ -1,4 +1,7 @@
-"""Quasi-static impedance and propagation helpers for PCB interconnects."""
+"""Quasi-static impedance and propagation helpers for PCB interconnects.
+
+Includes a built-in dielectric material library for common PCB laminates.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +9,119 @@ import math
 from typing import Literal
 
 TraceType = Literal["microstrip", "stripline", "coplanar"]
+
+# ---------------------------------------------------------------------------
+# Dielectric material library
+# Each entry: (name, nominal_er, loss_tangent, description)
+# ---------------------------------------------------------------------------
+
+DielectricEntry = tuple[str, float, float, str]
+
+DIELECTRIC_LIBRARY: dict[str, DielectricEntry] = {
+    "fr4_standard": (
+        "FR4 Standard",
+        4.40,
+        0.020,
+        "Standard FR4 glass-epoxy. Suitable for signals up to ~1 GHz.",
+    ),
+    "fr4_midloss": (
+        "FR4 Mid-Loss",
+        4.25,
+        0.012,
+        "Mid-loss FR4 (e.g. Isola IS400). Suitable up to ~3 GHz.",
+    ),
+    "fr4_lowloss": (
+        "FR4 Low-Loss",
+        4.00,
+        0.005,
+        "Low-loss FR4 (e.g. Isola IS410-HL). Suitable up to ~6 GHz.",
+    ),
+    "ro4350b": (
+        "Rogers RO4350B",
+        3.48,
+        0.0037,
+        "High-frequency PTFE-ceramic. Excellent for RF up to 30+ GHz.",
+    ),
+    "ro4003c": (
+        "Rogers RO4003C",
+        3.55,
+        0.0027,
+        "Low-loss hydrocarbon/ceramic. Popular for RF and microwave.",
+    ),
+    "megtron6": (
+        "Panasonic Megtron 6",
+        3.60,
+        0.002,
+        "Ultra-low-loss resin for PCIe Gen4+, 40G Ethernet, DDR5.",
+    ),
+    "megtron7": (
+        "Panasonic Megtron 7",
+        3.40,
+        0.0015,
+        "Next-gen ultra-low-loss for 100G+ applications.",
+    ),
+    "tuc862": (
+        "TUC TU-862 HF",
+        3.90,
+        0.005,
+        "Halogen-free low-loss laminate. Good balance of cost and performance.",
+    ),
+    "nelco4000_13ep": (
+        "Nelco N4000-13EP",
+        3.70,
+        0.009,
+        "Enhanced performance halogen-free. PCIe Gen2/3, USB3.",
+    ),
+    "ptfe": (
+        "PTFE / Teflon",
+        2.10,
+        0.0002,
+        "Lowest loss; very soft, difficult to process. Mm-wave applications.",
+    ),
+}
+
+
+def list_dielectric_materials() -> list[dict[str, object]]:
+    """Return all available dielectric materials with their properties."""
+    return [
+        {
+            "key": key,
+            "name": name,
+            "er": er,
+            "loss_tangent": loss_tan,
+            "description": desc,
+        }
+        for key, (name, er, loss_tan, desc) in DIELECTRIC_LIBRARY.items()
+    ]
+
+
+def get_dielectric(key: str) -> DielectricEntry:
+    """Return (name, er, loss_tangent, description) for a dielectric material key.
+
+    Raises ValueError for unknown keys.
+    """
+    entry = DIELECTRIC_LIBRARY.get(key.lower())
+    if entry is None:
+        available = ", ".join(sorted(DIELECTRIC_LIBRARY))
+        raise ValueError(
+            f"Unknown dielectric '{key}'. Available materials: {available}"
+        )
+    return entry
+
+
+def recommend_dielectric_for_frequency(freq_ghz: float) -> str:
+    """Return the recommended dielectric key for the given frequency."""
+    if freq_ghz <= 1.0:
+        return "fr4_standard"
+    if freq_ghz <= 3.0:
+        return "fr4_midloss"
+    if freq_ghz <= 6.0:
+        return "fr4_lowloss"
+    if freq_ghz <= 15.0:
+        return "ro4350b"
+    if freq_ghz <= 40.0:
+        return "ro4003c"
+    return "ptfe"
 
 _C_METERS_PER_SECOND = 299_792_458.0
 

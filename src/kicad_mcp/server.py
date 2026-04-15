@@ -20,6 +20,7 @@ from .tools import (
     emc_compliance,
     export,
     library,
+    manufacturing,
     pcb,
     power_integrity,
     project,
@@ -85,6 +86,8 @@ def build_server(profile: str | None = None) -> FastMCP:
         simulation.register(server)
     if "version_control" in enabled:
         version_control.register(server)
+    if "manufacturing" in enabled:
+        manufacturing.register(server)
 
     board_state.register(server)
     workflows.register(server)

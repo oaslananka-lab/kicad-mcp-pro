@@ -51,6 +51,8 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "project_infer_design_spec",
             "project_validate_design_spec",
             "project_get_next_action",
+            "project_auto_fix_loop",
+            "project_design_report",
             "kicad_list_recent_projects",
             "kicad_scan_directory",
             "kicad_create_new_project",
@@ -103,6 +105,8 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "pcb_add_mounting_holes",
             "pcb_add_fiducial_marks",
             "pcb_add_teardrops",
+            "pcb_auto_place_force_directed",
+            "pcb_bga_fanout",
             "pcb_delete_items",
             "pcb_save",
             "pcb_refill_zones",
@@ -143,6 +147,10 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "sch_check_power_flags",
             "sch_annotate",
             "sch_reload",
+            # v2.1.0 — subcircuit template tools
+            "sch_list_templates",
+            "sch_get_template_info",
+            "sch_instantiate_template",
         ],
     },
     "library": {
@@ -165,6 +173,11 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "lib_check_stock_availability",
             "lib_find_alternative_parts",
             "lib_get_datasheet_url",
+            # v2.2.0 — generative library tools
+            "lib_generate_footprint_ipc7351",
+            "lib_generate_symbol_from_pintable",
+            "lib_recommend_part",
+            "lib_bind_part_to_symbol",
         ],
     },
     "export": {
@@ -194,6 +207,15 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
         "tools": [
             "export_manufacturing_package",
             "get_board_stats",
+        ],
+    },
+    "manufacturing": {
+        "description": "Panelization, bring-up test plan generation, and release manifest.",
+        "tools": [
+            "mfg_panelize",
+            "mfg_generate_test_plan",
+            "mfg_generate_release_manifest",
+            "mfg_correct_cpl_rotations",
         ],
     },
     "validation": {
@@ -254,6 +276,10 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "si_generate_stackup",
             "si_check_via_stub",
             "si_calculate_decoupling_placement",
+            # v2.3.0 — stackup synthesis + net class binding
+            "si_list_dielectric_materials",
+            "si_synthesize_stackup_for_interfaces",
+            "si_bind_interfaces_to_net_classes",
         ],
     },
     "power_integrity": {
@@ -311,7 +337,9 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
     "minimal": ("project", "pcb_read", "export"),
     "schematic_only": ("project", "schematic", "library"),
     "pcb_only": ("project", "pcb_read", "pcb_write", "routing"),
-    "manufacturing": ("project", "pcb_read", "release_export", "validation", "dfm"),
+    "manufacturing": (
+        "project", "pcb_read", "release_export", "validation", "dfm", "manufacturing"
+    ),
     "builder": (
         "project",
         "schematic",
