@@ -481,10 +481,11 @@ and explain the remaining manual KiCad PCB Editor step when needed.
 - `sim_check_stability`
 - `sim_add_spice_directive`
 
-Simulation tools prefer `InSpice` when the `simulation` extra is installed and
-fall back to direct `ngspice` CLI execution when needed. `sim_add_spice_directive`
-stores a project-local sidecar file used by future MCP simulation runs, which is
-useful for reusable `.param`, `.include`, or `.options` lines.
+Simulation tools use direct `ngspice` CLI execution by default and can still use
+`InSpice` when it is installed manually in the runtime environment. The
+`sim_add_spice_directive` tool stores a project-local sidecar file used by future
+MCP simulation runs, which is useful for reusable `.param`, `.include`, or
+`.options` lines.
 
 ### Signal Integrity
 

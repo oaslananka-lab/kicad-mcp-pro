@@ -1,4 +1,4 @@
-"""Simulation helpers backed by InSpice and ngspice CLI."""
+"""Simulation helpers backed by ngspice CLI with optional InSpice support."""
 
 from __future__ import annotations
 
@@ -230,7 +230,7 @@ def _is_float(token: str) -> bool:
 
 
 class NgspiceRunner:
-    """Run simulations through InSpice when possible and fall back to ngspice CLI."""
+    """Run simulations through ngspice CLI, using InSpice only when available."""
 
     def __init__(self, ngspice_cli: Path | None = None, cli_timeout: float = 120.0) -> None:
         self._configured_cli = ngspice_cli

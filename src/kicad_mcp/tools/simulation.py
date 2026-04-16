@@ -1,4 +1,4 @@
-"""SPICE simulation tools backed by InSpice and ngspice."""
+"""SPICE simulation tools backed by ngspice with optional InSpice support."""
 
 from __future__ import annotations
 

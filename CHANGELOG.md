@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-04-16
+
+### Fixed
+
+- Removed the optional `InSpice` extra dependency from published package metadata so the vulnerable transitive `diskcache` runtime dependency is no longer installed with `simulation`.
+- Cleaned an accidentally tracked `.history` gitlink from benchmark fixtures and ignored future editor history folders so GitHub checkout and Pages builds no longer fail on missing submodule metadata.
+
+### Changed
+
+- Clarified simulation documentation to describe `ngspice` CLI as the default backend with manual `InSpice` support when users install it explicitly.
+
 ## [2.3.1] - 2026-04-16
 
 ### Changed

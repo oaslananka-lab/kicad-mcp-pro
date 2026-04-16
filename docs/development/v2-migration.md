@@ -37,9 +37,9 @@ v2 also adds a dedicated SPICE simulation category:
 - `sim_check_stability`
 - `sim_add_spice_directive`
 
-The preferred backend is `InSpice` when the `simulation` extra is installed.
-When that path is unavailable, the server falls back to direct `ngspice` CLI
-execution.
+The default backend is direct `ngspice` CLI execution. If `InSpice` is installed
+manually in the runtime environment, the server can still use it as an optional
+backend.
 
 ## Signal Integrity Surface
 
