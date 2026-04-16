@@ -22,7 +22,9 @@ parameters:
       - PyPI
 
 variables:
-  pythonVersion: "3.12"
+  - group: pypi-credentials
+  - name: pythonVersion
+    value: "3.12"
 
 stages:
   - stage: Validate
@@ -111,14 +113,18 @@ stages:
                         --repository-url https://test.pypi.org/legacy/ \
                         -u __token__ \
                         -p "$TEST_PYPI_TOKEN" \
+                        --non-interactive \
+                        --skip-existing \
                         "$(Pipeline.Workspace)/python-dist"/*
                     else
                       python -m twine upload \
                         -u __token__ \
                         -p "$PYPI_TOKEN" \
+                        --non-interactive \
+                        --skip-existing \
                         "$(Pipeline.Workspace)/python-dist"/*
                     fi
                   displayName: Publish distribution
                   env:
-                    PYPI_TOKEN: $(pypiToken)
-                    TEST_PYPI_TOKEN: $(testPyPIToken)
+                    PYPI_TOKEN: $(PYPI_TOKEN)
+                    TEST_PYPI_TOKEN: $(TEST_PYPI_TOKEN)
