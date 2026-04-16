@@ -33,7 +33,7 @@ jobs:
     outputs:
       artifact-name: ${{ steps.set-artifact.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Explain execution mode
         run: echo "Primary release flow runs in Azure DevOps. This GitHub workflow is manual fallback only."
@@ -60,7 +60,7 @@ jobs:
       - id: set-artifact
         run: echo "name=dist-${{ inputs.target_index }}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.set-artifact.outputs.name }}
           path: dist/
@@ -79,7 +79,7 @@ jobs:
       id-token: write             # for PyPI trusted publishing (OIDC)
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist-${{ inputs.target_index }}
           path: dist/
