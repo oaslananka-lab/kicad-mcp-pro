@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-04-18
+
+### Fixed
+
+- Refreshed the locked `authlib` dependency to `1.7.0` on the shipped release line so the default branch and release metadata no longer surface the resolved CSRF advisory.
+
+### Changed
+
+- Bumped project release version to `2.4.1` across package, runtime, and registry metadata for the post-`2.4.0` security patch cut.
+
 ## [2.4.0] - 2026-04-17
 
 ### Added
