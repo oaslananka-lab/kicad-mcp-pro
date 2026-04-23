@@ -26,10 +26,14 @@ jobs:
         run: |
           echo "Automatic GitHub CI/CD is owned by oaslananka-lab."
           echo "Personal GitHub, Azure DevOps, and GitLab are manual fallback surfaces."
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
       - uses: astral-sh/setup-uv@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - run: uv sync --all-extras --python ${{ matrix.python-version }}
-      - run: uv run --python ${{ matrix.python-version }} ruff check src/ tests/
-      - run: uv run --python ${{ matrix.python-version }} python -m mypy src/kicad_mcp/
-      - run: uv run --python ${{ matrix.python-version }} python -m pytest tests/unit/ tests/integration/ tests/e2e/ -q --cov=kicad_mcp --cov-report=term-missing --cov-fail-under=70
+      - run: corepack enable
+      - run: corepack npm ci
+      - run: uv sync --all-extras --frozen --python ${{ matrix.python-version }}
+      - run: corepack npm run check:ci

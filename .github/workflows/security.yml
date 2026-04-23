@@ -26,13 +26,19 @@ jobs:
         run: |
           echo "Automatic GitHub security CI/CD is owned by oaslananka-lab."
           echo "Personal GitHub, Azure DevOps, and GitLab are manual fallback surfaces."
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
       - uses: astral-sh/setup-uv@v4
         with:
           python-version: "3.12"
+      - run: corepack enable
+      - run: corepack npm ci
       - run: uv sync --all-extras --frozen --python 3.12
-      - run: uv run --python 3.12 python -m bandit -r src/ -ll -s B104
+      - run: corepack npm run security:bandit
       - name: Enforced dependency audit
-        run: uv run --python 3.12 python -m pip_audit --skip-editable --progress-spinner off
+        run: corepack npm run security:audit
 
       - name: Install Doppler CLI
         if: env.DOPPLER_TOKEN != ''

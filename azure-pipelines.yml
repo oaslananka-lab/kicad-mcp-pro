@@ -18,6 +18,8 @@ variables:
   - group: pypi-credentials
   - name: pythonVersion
     value: "3.12"
+  - name: nodeVersion
+    value: "24.15.0"
 
 stages:
   - stage: Validate
@@ -32,27 +34,30 @@ stages:
             inputs:
               versionSpec: "$(pythonVersion)"
 
+          - task: NodeTool@0
+            inputs:
+              versionSpec: "$(nodeVersion)"
+            displayName: Use Node.js
+
           - script: python -m pip install --upgrade pip uv
             displayName: Install uv
 
-          - script: uv sync --all-extras --python $(pythonVersion)
+          - script: corepack enable
+            displayName: Enable Corepack
+
+          - script: corepack npm ci
+            displayName: Install Node hook tooling
+
+          - script: uv sync --all-extras --frozen --python $(pythonVersion)
             displayName: Sync dependencies
 
-          - script: uv run --python $(pythonVersion) ruff check src/ tests/
-            displayName: Run ruff
+          - script: corepack npm run check:ci
+            displayName: Run local validation gate
 
-          - script: uv run --python $(pythonVersion) python -m mypy src/kicad_mcp/
-            displayName: Run mypy
+          - script: corepack npm run security:bandit
+            displayName: Run Bandit
 
-          - script: >
-              uv run --python $(pythonVersion)
-              python -m pytest tests/unit/ tests/integration/ tests/e2e/ -q
-              --cov=kicad_mcp --cov-report=term-missing --cov-fail-under=70
-            displayName: Run pytest
-
-          - script: >
-              uv run --python $(pythonVersion)
-              python -m pip_audit --skip-editable --progress-spinner off
+          - script: corepack npm run security:audit
             displayName: Run pip-audit
 
           - script: |
@@ -105,19 +110,30 @@ stages:
             inputs:
               versionSpec: "$(pythonVersion)"
 
+          - task: NodeTool@0
+            inputs:
+              versionSpec: "$(nodeVersion)"
+            displayName: Use Node.js
+
           - script: python -m pip install --upgrade pip uv
             displayName: Install uv
 
-          - script: uv sync --all-extras --python $(pythonVersion)
+          - script: corepack enable
+            displayName: Enable Corepack
+
+          - script: corepack npm ci
+            displayName: Install Node hook tooling
+
+          - script: uv sync --all-extras --frozen --python $(pythonVersion)
             displayName: Sync dependencies
 
-          - script: uv run --python $(pythonVersion) ruff check src/ tests/
+          - script: corepack npm run lint
             displayName: Run ruff
 
-          - script: uv run --python $(pythonVersion) python -m mypy src/kicad_mcp/
+          - script: corepack npm run typecheck
             displayName: Run mypy
 
-          - script: uv run --python $(pythonVersion) python -m pytest tests/unit/ -q
+          - script: corepack npm run test:unit
             displayName: Run unit tests
 
   - stage: Build
@@ -133,10 +149,21 @@ stages:
             inputs:
               versionSpec: "$(pythonVersion)"
 
+          - task: NodeTool@0
+            inputs:
+              versionSpec: "$(nodeVersion)"
+            displayName: Use Node.js
+
           - script: python -m pip install --upgrade pip uv
             displayName: Install uv
 
-          - script: uv build
+          - script: corepack enable
+            displayName: Enable Corepack
+
+          - script: corepack npm ci
+            displayName: Install Node hook tooling
+
+          - script: corepack npm run build
             displayName: Build package
 
           - publish: dist

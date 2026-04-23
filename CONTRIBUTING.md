@@ -5,26 +5,30 @@
 ```bash
 uv python install 3.12
 uv sync --all-extras
-uv run ruff check src/ tests/
-uv run python -m mypy src/kicad_mcp/
-uv run python -m pytest tests/unit/ tests/integration/ tests/e2e/ -q
+corepack enable
+corepack npm ci
+corepack npm run check:ci
 ```
 
 - The v2 development baseline is Python 3.12+.
+- Node.js is only used for Husky local hooks. Use the LTS version in `.node-version`
+  and `.nvmrc`, then install with `corepack npm ci` so `package-lock.json`
+  and `packageManager` stay authoritative.
 
 ## Local CI Guards
 
 Husky hooks mirror the required CI checks without making every commit too slow.
 
 ```bash
-npm install
-npm run check:ci
+corepack npm ci
+corepack npm run check:ci
 ```
 
-- `pre-commit` runs `ruff` and `mypy`.
-- `pre-push` runs the coverage-gated pytest command used by CI.
-- `npm run hooks:security` runs `bandit` and `pip-audit` when you want the manual security audit locally.
-  The current audit command ignores `CVE-2025-69872` because it is a no-fix transitive `diskcache` advisory pulled in only by the optional `simulation` extra through `InSpice`.
+- `pre-commit` is intentionally fast: it checks formatting and lint only for staged Python files.
+- `pre-push` runs full lint, strict mypy, and unit tests.
+- `corepack npm run check:ci` mirrors the regular validation job: lint, typecheck, and coverage-gated tests.
+- `corepack npm run check` is the full local release gate: validation, security audit, and package build.
+- `corepack npm run security` runs `bandit` and `pip-audit`.
 
 ## Release Version Bump
 
@@ -32,7 +36,7 @@ Use the release helper so package, runtime, registry metadata, changelog, and lo
 
 ```bash
 npm run version:bump -- 1.0.4
-npm run check:ci
+corepack npm run check
 ```
 
 ## Development Workflow
