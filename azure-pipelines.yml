@@ -39,7 +39,7 @@ stages:
               versionSpec: "$(nodeVersion)"
             displayName: Use Node.js
 
-          - script: python -m pip install --upgrade pip uv
+          - script: python -m pip install --upgrade uv
             displayName: Install uv
 
           - script: corepack enable
@@ -115,7 +115,7 @@ stages:
               versionSpec: "$(nodeVersion)"
             displayName: Use Node.js
 
-          - script: python -m pip install --upgrade pip uv
+          - script: python -m pip install --upgrade uv
             displayName: Install uv
 
           - script: corepack enable
@@ -154,7 +154,7 @@ stages:
               versionSpec: "$(nodeVersion)"
             displayName: Use Node.js
 
-          - script: python -m pip install --upgrade pip uv
+          - script: python -m pip install --upgrade uv
             displayName: Install uv
 
           - script: corepack enable
@@ -188,7 +188,7 @@ stages:
             inputs:
               versionSpec: "$(pythonVersion)"
 
-          - script: python -m pip install --upgrade pip twine
+          - script: python -m pip install --upgrade twine
             displayName: Install twine
 
           - script: |

@@ -14,7 +14,7 @@
     "test:unit": "uv run python -m pytest tests/unit/ -q",
     "build": "uv build",
     "security:bandit": "uv run python -m bandit -r src/ -ll -s B104",
-    "security:audit": "uv run python -m pip_audit --skip-editable --progress-spinner off",
+    "security:audit": "uv run python scripts/audit_dependencies.py",
     "security": "npm run security:bandit && npm run security:audit",
     "check": "npm run lint && npm run typecheck && npm run test && npm run security && npm run build",
     "check:format": "npm run format:check",
