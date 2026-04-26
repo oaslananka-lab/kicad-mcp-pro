@@ -142,3 +142,60 @@ async def test_power_integrity_surface(sample_project, mock_board) -> None:
     assert "Package theta JA: 60.00 C/W" in package_vias
     assert "Required via-network resistance" in package_vias
     assert "Thermal copper-pour review for GND" in thermal
+
+
+@pytest.mark.anyio
+async def test_power_integrity_edge_paths(sample_project, mock_board) -> None:
+    mock_board.get_tracks.return_value = []
+    mock_board.get_footprints.return_value = []
+    mock_board.get_shapes.return_value = []
+    mock_board.get_zones.return_value = []
+    mock_board.get_stackup.return_value.layers = []
+    server = build_server("full")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+
+    missing_tracks = await call_tool_text(
+        server,
+        "pdn_check_copper_weight",
+        {"net_name": "VBUS", "expected_current_a": 2.0},
+    )
+    no_caps = await call_tool_text(
+        server,
+        "pdn_recommend_decoupling_caps",
+        {"ic_refs": ["U404"], "vcc_net": "3V3", "supply_voltage_v": 3.3},
+    )
+    unsupported_plane = await call_tool_text(
+        server,
+        "pdn_generate_power_plane",
+        {"net_name": "3V3", "layer": "In1_Cu"},
+    )
+    no_bounds_plane = await call_tool_text(
+        server,
+        "pdn_generate_power_plane",
+        {"net_name": "3V3", "layer": "F_Cu"},
+    )
+    thermal = await call_tool_text(
+        server,
+        "thermal_check_copper_pour",
+        {"net_name": "3V3", "expected_power_w": 2.0},
+    )
+    pdn = await call_tool_text(
+        server,
+        "check_power_integrity",
+        {
+            "net_name": "3V3",
+            "source_ref": "U_REG",
+            "load_refs": ["U1", "U2"],
+            "trace_width_mm": 0.1,
+            "load_current_a": 1.0,
+            "trace_length_mm": 200.0,
+        },
+    )
+
+    assert "No routed tracks" in missing_tracks
+    assert "add one 100 nF local cap" in no_caps
+    assert "supports only F_Cu and B_Cu" in unsupported_plane
+    assert "Could not determine board bounds" in no_bounds_plane
+    assert "No copper pours were found" in thermal
+    assert "PDN mesh check" in pdn
+    assert "- FAIL:" in pdn

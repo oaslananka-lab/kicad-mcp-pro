@@ -143,16 +143,20 @@ def _import_inspice_modules() -> dict[str, Any] | None:
 
 
 def _as_real_list(values: object) -> list[float]:
+    if isinstance(values, complex):
+        return [float(values.real)]
     numpy = _optional_numpy()
     if numpy is not None:
         array = numpy.asarray(values)
         if array.ndim == 0:
-            return [float(array.item())]
-        return [float(item) for item in array.tolist()]
+            item = array.item()
+            return [float(item.real if isinstance(item, complex) else item)]
+        return [
+            float(item.real if isinstance(item, complex) else item)
+            for item in array.tolist()
+        ]
     if isinstance(values, (int, float)):
         return [float(values)]
-    if isinstance(values, complex):
-        return [float(values.real)]
     if isinstance(values, list):
         return [float(cast(float, item)) for item in values]
     if isinstance(values, tuple):

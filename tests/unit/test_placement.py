@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from kicad_mcp.tools.pcb import _placement_net_weight, _placement_nets_from_footprints
 from kicad_mcp.utils.placement import (
+    BGABall,
     ForceDirectedConfig,
     PlacementComponent,
     PlacementNet,
+    _centroid,
+    _snap,
     force_directed_placement,
+    generate_bga_fanout_plan,
 )
 
 
@@ -79,3 +83,29 @@ def test_board_placement_nets_skip_single_footprint_nets() -> None:
         ("+3V3", ["C1", "U1"], 3.0),
         ("USB_DP_P", ["J1", "U1"], 5.0),
     ]
+
+
+def test_placement_geometry_helpers_and_bga_fanout_strategies() -> None:
+    components = [
+        PlacementComponent(ref="U1", x=10.0, y=20.0),
+        PlacementComponent(ref="U2", x=20.0, y=40.0),
+    ]
+    center = _centroid(components, ["U1", "U2"])
+    missing_center = _centroid(components, ["J404"])
+    balls = [
+        BGABall(row="A", col=1, net="D0", x_mm=0.0, y_mm=0.0),
+        BGABall(row="B", col=2, net="D1", x_mm=0.8, y_mm=0.8),
+    ]
+
+    dog_ear = generate_bga_fanout_plan(balls, pitch_mm=0.5, strategy="dog_ear")
+    inline = generate_bga_fanout_plan(balls, pitch_mm=0.8, strategy="inline")
+
+    assert center.x == 15.0
+    assert center.y == 30.0
+    assert missing_center.x == 0.0
+    assert _snap(1.26, 0.5) == 1.5
+    assert _snap(1.26, 0.0) == 1.26
+    assert dog_ear[0]["track_width_mm"] == 0.1
+    assert dog_ear[0]["dog_ear_dx"] != 0.0
+    assert inline[0]["track_width_mm"] == 0.15
+    assert inline[0]["dog_ear_dx"] == 0.0

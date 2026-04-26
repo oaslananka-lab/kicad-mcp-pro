@@ -10,7 +10,7 @@
     "format": "uv run ruff format src/ tests/",
     "format:check": "uv run ruff format --check src/ tests/",
     "typecheck": "uv run python -m mypy src/kicad_mcp/",
-    "test": "uv run python -m pytest tests/unit/ tests/integration/ tests/e2e/ -q --cov=kicad_mcp --cov-report=term-missing --cov-fail-under=70",
+    "test": "uv run python -m pytest tests/unit/ tests/integration/ tests/e2e/ -q --cov=kicad_mcp --cov-report=term-missing --cov-fail-under=90",
     "test:unit": "uv run python -m pytest tests/unit/ -q",
     "build": "uv build",
     "security:bandit": "uv run python -m bandit -r src/ -ll -s B104",

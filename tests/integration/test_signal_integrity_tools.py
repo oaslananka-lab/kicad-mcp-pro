@@ -169,3 +169,75 @@ async def test_signal_integrity_surface(sample_project, mock_board) -> None:
     assert "CRITICAL resonance near 23420.0 MHz" in via_stub
     assert "Decoupling placement heuristic" in decoupling
     assert "Nearest decoupler: C1" in decoupling
+
+
+@pytest.mark.anyio
+async def test_signal_integrity_stackup_synthesis_and_net_class_binding(
+    sample_project,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = build_server("full")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+    interfaces = [
+        {
+            "kind": "usb3",
+            "differential": True,
+            "impedance_target_ohm": 90.0,
+            "net_prefix": "USB",
+        },
+        {
+            "kind": "ddr4",
+            "differential": False,
+            "impedance_target_ohm": 50.0,
+            "net_prefix": "DDR",
+        },
+        {"kind": "uart"},
+    ]
+
+    materials = await call_tool_text(server, "si_list_dielectric_materials", {})
+    synthesis = await call_tool_text(
+        server,
+        "si_synthesize_stackup_for_interfaces",
+        {"interfaces": interfaces, "cost_tier": "midloss", "board_thickness_mm": 1.6},
+    )
+    dry_run = await call_tool_text(
+        server,
+        "si_bind_interfaces_to_net_classes",
+        {"interfaces": interfaces, "dry_run": True},
+    )
+
+    written: list[tuple[str, float, float, float | None]] = []
+
+    def fake_write_rule(
+        net_class: str,
+        clearance_mm: float,
+        track_width_mm: float,
+        diff_gap_mm: float | None,
+    ) -> str:
+        written.append((net_class, clearance_mm, track_width_mm, diff_gap_mm))
+        return str(sample_project / "demo.kicad_dru")
+
+    monkeypatch.setattr("kicad_mcp.tools.signal_integrity._write_nc_rule", fake_write_rule)
+    applied = await call_tool_text(
+        server,
+        "si_bind_interfaces_to_net_classes",
+        {"interfaces": interfaces, "dry_run": False},
+    )
+    no_plan = await call_tool_text(
+        server,
+        "si_bind_interfaces_to_net_classes",
+        {"interfaces": [{"kind": "uart"}], "dry_run": True},
+    )
+
+    assert "Available dielectric materials" in materials
+    assert "Stackup Synthesis Report" in synthesis
+    assert "Has differential pairs: True" in synthesis
+    assert "Net Class Configuration" in synthesis
+    assert "Net Class Binding Plan" in dry_run
+    assert "USB3" in dry_run
+    assert "DDR4" in dry_run
+    assert "Dry-run mode" in dry_run
+    assert "Applied" in applied
+    assert written
+    assert written[0][0] == "USB3"
+    assert "No high-speed interfaces" in no_plan

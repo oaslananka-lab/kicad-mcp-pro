@@ -1569,7 +1569,7 @@ def _extract_wires(content: str) -> list[dict[str, Any]]:
                 pts_match = re.search(
                     (
                         r"\(pts\s+\(xy\s+([-\d.]+)\s+([-\d.]+)\)\s+"
-                        r"\(xy\s+([-\d.]+)\s+([-\d.]+)\)\)"
+                        r"\(xy\s+([-\d.]+)\s+([-\d.]+)\)\s*\)"
                     ),
                     block,
                 )
@@ -3075,7 +3075,7 @@ def _parse_wire_block(block: str) -> dict[str, Any] | None:
     pts_match = re.search(
         (
             r"\(pts\s+\(xy\s+([-\d.]+)\s+([-\d.]+)\)\s+"
-            r"\(xy\s+([-\d.]+)\s+([-\d.]+)\)\)"
+            r"\(xy\s+([-\d.]+)\s+([-\d.]+)\)\s*\)"
         ),
         block,
     )

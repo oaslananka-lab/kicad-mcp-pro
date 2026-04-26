@@ -141,6 +141,86 @@ async def test_pcb_summary_tool(mock_board) -> None:
 
 
 @pytest.mark.anyio
+async def test_pcb_read_tools_report_active_board_items(
+    mock_board,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KICAD_MCP_MAX_TEXT_RESPONSE_CHARS", "1000")
+    track = SimpleNamespace(
+        start=SimpleNamespace(x_nm=1_000_000, y_nm=2_000_000),
+        end=SimpleNamespace(x_nm=3_000_000, y_nm=2_000_000),
+        layer=BoardLayer.BL_F_Cu,
+        width=250_000,
+        net=SimpleNamespace(name="USB_DP"),
+        id=SimpleNamespace(value="track-1"),
+    )
+    via = SimpleNamespace(
+        position=SimpleNamespace(x_nm=4_000_000, y_nm=5_000_000),
+        diameter=600_000,
+        drill_diameter=300_000,
+        net=SimpleNamespace(name="GND"),
+        type=ViaType.VT_THROUGH,
+    )
+    footprint = SimpleNamespace(
+        reference_field=SimpleNamespace(text=SimpleNamespace(value="U1")),
+        value_field=SimpleNamespace(text=SimpleNamespace(value="MCU")),
+        position=SimpleNamespace(x_nm=6_000_000, y_nm=7_000_000),
+        layer=BoardLayer.BL_B_Cu,
+        id=SimpleNamespace(value="fp-1"),
+    )
+    zone = SimpleNamespace(
+        name="GND_FILL",
+        net=SimpleNamespace(name="GND"),
+        layers=[BoardLayer.BL_F_Cu, BoardLayer.BL_B_Cu],
+    )
+    shape = SimpleNamespace(layer=BoardLayer.BL_Edge_Cuts)
+    pad = SimpleNamespace(
+        parent=SimpleNamespace(reference_field=SimpleNamespace(text=SimpleNamespace(value="U1"))),
+        number="1",
+        net=SimpleNamespace(name="USB_DP"),
+        position=SimpleNamespace(x_nm=6_500_000, y_nm=7_500_000),
+    )
+    mock_board.get_tracks.return_value = [track]
+    mock_board.get_vias.return_value = [via]
+    mock_board.get_footprints.return_value = [footprint]
+    mock_board.get_nets.return_value = [SimpleNamespace(name="USB_DP")]
+    mock_board.get_zones.return_value = [zone]
+    mock_board.get_shapes.return_value = [shape]
+    mock_board.get_pads.return_value = [pad]
+    mock_board.get_enabled_layers.return_value = [BoardLayer.BL_F_Cu, BoardLayer.BL_B_Cu]
+    mock_board.get_selection.return_value = [track]
+    mock_board.get_as_string.return_value = "(kicad_pcb " + ("x" * 1200) + ")"
+    server = build_server("pcb")
+
+    tracks = await call_tool_text(server, "pcb_get_tracks", {"filter_layer": "F_Cu"})
+    track_page = await call_tool_text(server, "pcb_get_tracks", {"page": 2, "page_size": 1})
+    vias = await call_tool_text(server, "pcb_get_vias", {})
+    footprints = await call_tool_text(server, "pcb_get_footprints", {"filter_layer": "B_Cu"})
+    nets = await call_tool_text(server, "pcb_get_nets", {})
+    zones = await call_tool_text(server, "pcb_get_zones", {})
+    shapes = await call_tool_text(server, "pcb_get_shapes", {})
+    pads = await call_tool_text(server, "pcb_get_pads", {})
+    layers = await call_tool_text(server, "pcb_get_layers", {})
+    selection = await call_tool_text(server, "pcb_get_selection", {})
+    board_text = await call_tool_text(server, "pcb_get_board_as_string", {})
+    ratsnest = await call_tool_text(server, "pcb_get_ratsnest", {})
+
+    assert "Tracks (1 total)" in tracks
+    assert "net=USB_DP" in tracks
+    assert "Track page 2 is out of range" in track_page
+    assert "diameter=0.600 mm" in vias
+    assert "U1 (MCU)" in footprints
+    assert "- USB_DP" in nets
+    assert "GND_FILL" in zones
+    assert "SimpleNamespace layer=BL_Edge_Cuts" in shapes
+    assert "U1:1 net=USB_DP" in pads
+    assert "BL_F_Cu" in layers and "BL_B_Cu" in layers
+    assert "Selected items (1 total)" in selection
+    assert "... [truncated]" in board_text
+    assert "Live ratsnest extraction is not exposed" in ratsnest
+
+
+@pytest.mark.anyio
 async def test_pcb_add_track_creates_item(mock_board) -> None:
     server = build_server("pcb")
     await server.call_tool(
@@ -947,6 +1027,105 @@ async def test_pcb_add_fiducial_marks_appends_custom_footprints(
     assert "Added 3 fiducial mark(s)" in result
     assert pcb_text.count('(footprint "Fiducial_1.00mm"') == 3
     assert '(property "Reference" "FID1"' in pcb_text
+
+
+@pytest.mark.anyio
+async def test_pcb_design_blocks_and_inner_layer_graphics_success(
+    sample_project,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _allow_schematic_sync(monkeypatch)
+    server = build_server("full")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+    (sample_project / "demo.kicad_pcb").write_text(
+        _board_text(
+            _footprint_block("R_0805", "R1", "10k", 10, 10, "block-r1"),
+            _footprint_block("R_0805", "R2", "22k", 14, 10, "block-r2"),
+        ),
+        encoding="utf-8",
+    )
+
+    stackup = await call_tool_text(
+        server,
+        "pcb_set_stackup",
+        {
+            "layers": [
+                {"name": "F.Cu", "type": "signal", "thickness_mm": 0.035, "material": "Copper"},
+                {
+                    "name": "dielectric_1",
+                    "type": "dielectric",
+                    "thickness_mm": 0.2,
+                    "material": "FR4",
+                    "epsilon_r": 4.2,
+                },
+                {"name": "In1.Cu", "type": "signal", "thickness_mm": 0.035, "material": "Copper"},
+                {
+                    "name": "dielectric_2",
+                    "type": "dielectric",
+                    "thickness_mm": 0.2,
+                    "material": "FR4",
+                    "epsilon_r": 4.2,
+                },
+                {"name": "In2.Cu", "type": "signal", "thickness_mm": 0.035, "material": "Copper"},
+                {
+                    "name": "dielectric_3",
+                    "type": "dielectric",
+                    "thickness_mm": 0.2,
+                    "material": "FR4",
+                    "epsilon_r": 4.2,
+                },
+                {"name": "B.Cu", "type": "signal", "thickness_mm": 0.035, "material": "Copper"},
+            ]
+        },
+    )
+    empty_blocks = await call_tool_text(server, "pcb_block_list", {})
+    missing_block = await call_tool_text(
+        server,
+        "pcb_block_create_from_selection",
+        {"name": "pair", "references": ["R404"]},
+    )
+    saved = await call_tool_text(
+        server,
+        "pcb_block_create_from_selection",
+        {"name": "pair", "references": ["R1", "R2"]},
+    )
+    listed = await call_tool_text(server, "pcb_block_list", {})
+    placed = await call_tool_text(
+        server,
+        "pcb_block_place",
+        {"block_name": "pair", "x_mm": 40.0, "y_mm": 50.0, "rotation_deg": 90},
+    )
+    unknown_place = await call_tool_text(
+        server,
+        "pcb_block_place",
+        {"block_name": "missing", "x_mm": 0.0, "y_mm": 0.0},
+    )
+    inner = await call_tool_text(
+        server,
+        "add_footprint_inner_layer_graphic",
+        {
+            "reference": "R1",
+            "layer": "In1.Cu",
+            "shape_type": "line",
+            "x1_mm": -1.0,
+            "y1_mm": 0.0,
+            "x2_mm": 1.0,
+            "y2_mm": 0.0,
+        },
+    )
+    layers = await call_tool_text(server, "pcb_get_footprint_layers", {"reference": "R1"})
+
+    pcb_text = (sample_project / "demo.kicad_pcb").read_text(encoding="utf-8")
+    assert "Configured stackup with 7 layers." in stackup
+    assert "{}" in empty_blocks
+    assert "R404" in missing_block
+    assert "PCB block 'pair' saved" in saved
+    assert '"footprint_count": 2' in listed
+    assert "Placed PCB block 'pair'" in placed
+    assert "was not found" in unknown_place
+    assert "Added line inner-layer graphic" in inner
+    assert '"In1.Cu"' in layers
+    assert pcb_text.count('(footprint "R_0805"') == 4
 
 
 @pytest.mark.anyio

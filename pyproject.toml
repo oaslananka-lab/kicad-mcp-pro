@@ -99,4 +99,4 @@ source = ["src/kicad_mcp"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
-fail_under = 70
+fail_under = 90

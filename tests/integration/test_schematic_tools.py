@@ -41,6 +41,69 @@ async def test_schematic_string_values_are_escaped(sample_project, mock_kicad) -
 
 
 @pytest.mark.anyio
+async def test_schematic_misc_file_tools_cover_buses_labels_jumper_and_project_flags(
+    sample_project,
+    mock_kicad,
+) -> None:
+    server = build_server("schematic")
+
+    bus = await call_tool_text(
+        server,
+        "sch_add_bus",
+        {"x1_mm": 10.0, "y1_mm": 20.0, "x2_mm": 40.0, "y2_mm": 20.0},
+    )
+    entry = await call_tool_text(
+        server,
+        "sch_add_bus_wire_entry",
+        {"x_mm": 15.0, "y_mm": 20.0, "direction": "down_right"},
+    )
+    no_connect = await call_tool_text(
+        server,
+        "sch_add_no_connect",
+        {"x_mm": 30.0, "y_mm": 30.0},
+    )
+    global_label = await call_tool_text(
+        server,
+        "sch_add_global_label",
+        {"text": "USB_DP", "x_mm": 50.0, "y_mm": 20.0, "shape": "output"},
+    )
+    hierarchical = await call_tool_text(
+        server,
+        "sch_add_hierarchical_label",
+        {"text": "SENSE", "x_mm": 55.0, "y_mm": 25.0, "shape": "input"},
+    )
+    jumper = await call_tool_text(
+        server,
+        "sch_add_jumper",
+        {"x_mm": 70.0, "y_mm": 35.0, "pins": 3, "open_by_default": False},
+    )
+    hop = await call_tool_text(server, "sch_set_hop_over", {"enabled": True})
+    labels = await call_tool_text(server, "sch_get_labels", {})
+    nets = await call_tool_text(server, "sch_get_net_names", {})
+    wires = await call_tool_text(server, "sch_get_wires", {})
+
+    schematic = (sample_project / "demo.kicad_sch").read_text(encoding="utf-8")
+    project_payload = (sample_project / "demo.kicad_pro").read_text(encoding="utf-8")
+
+    assert "updated" in bus.lower()
+    assert "updated" in entry.lower()
+    assert "updated" in no_connect.lower()
+    assert "updated" in global_label.lower()
+    assert "updated" in hierarchical.lower()
+    assert "Added jumper" in jumper
+    assert "Hop-over display set to enabled" in hop
+    assert "(bus" in schematic
+    assert "(bus_entry" in schematic
+    assert "(no_connect" in schematic
+    assert '(global_label "USB_DP"' in schematic
+    assert '(hierarchical_label "SENSE"' in schematic
+    assert '"hop_over_display": true' in project_payload
+    assert "USB_DP" in labels and "SENSE" in labels
+    assert "- USB_DP" in nets and "- SENSE" in nets
+    assert "Wires" in wires or "contains no wires" in wires
+
+
+@pytest.mark.anyio
 async def test_power_symbol_reference_is_hidden_and_value_offset(
     sample_project,
     mock_kicad,
@@ -80,6 +143,129 @@ async def test_build_circuit_accepts_power_symbol_mm_aliases(sample_project, moc
     schematic = (sample_project / "demo.kicad_sch").read_text(encoding="utf-8")
     assert '(lib_id "power:GND")' in schematic
     assert "\t\t(at 20.32 30.48 0)" in schematic
+
+
+@pytest.mark.anyio
+async def test_schematic_end_to_end_editing_and_analysis_tools(
+    sample_project,
+    mock_kicad,
+) -> None:
+    server = build_server("schematic")
+    await call_tool_text(
+        server,
+        "sch_build_circuit",
+        {
+            "symbols": [
+                {
+                    "library": "Device",
+                    "symbol_name": "R",
+                    "reference": "R1",
+                    "value": "10k",
+                    "footprint": "Resistor_SMD:R_0805",
+                    "x_mm": 50.8,
+                    "y_mm": 50.8,
+                },
+                {
+                    "library": "Device",
+                    "symbol_name": "R",
+                    "reference": "R2",
+                    "value": "22k",
+                    "footprint": "Resistor_SMD:R_0805",
+                    "x_mm": 76.2,
+                    "y_mm": 50.8,
+                },
+            ],
+            "labels": [{"name": "MID", "x_mm": 63.5, "y_mm": 50.8}],
+            "wires": [{"x1_mm": 53.34, "y1_mm": 50.8, "x2_mm": 73.66, "y2_mm": 50.8}],
+        },
+    )
+
+    symbols = await call_tool_text(server, "sch_get_symbols", {})
+    pin_positions = await call_tool_text(
+        server,
+        "sch_get_pin_positions",
+        {"library": "Device", "symbol_name": "R", "x_mm": 50.8, "y_mm": 50.8},
+    )
+    bad_unit = await call_tool_text(
+        server,
+        "sch_get_pin_positions",
+        {"library": "Device", "symbol_name": "R", "x_mm": 50.8, "y_mm": 50.8, "unit": 2},
+    )
+    swappable = await call_tool_text(server, "sch_list_swappable_pins", {"component_ref": "R1"})
+    pin_swap = await call_tool_text(
+        server,
+        "sch_swap_pins",
+        {"component_ref": "R1", "pin_a": "1", "pin_b": "2"},
+    )
+    gate_swap = await call_tool_text(
+        server,
+        "sch_swap_gates",
+        {"component_ref": "R1", "gate_a": 1, "gate_b": 2},
+    )
+    routed = await call_tool_text(
+        server,
+        "sch_route_wire_between_pins",
+        {"ref1": "R1", "pin1": "2", "ref2": "R2", "pin2": "1"},
+    )
+    connectivity = await call_tool_text(server, "sch_get_connectivity_graph", {})
+    trace = await call_tool_text(server, "sch_trace_net", {"net_name": "MID"})
+    bounding = await call_tool_text(server, "sch_get_bounding_boxes", {})
+    free = await call_tool_text(
+        server,
+        "sch_find_free_placement",
+        {"count": 2, "keepout_regions": [[40.0, 40.0, 90.0, 60.0]]},
+    )
+    resized = await call_tool_text(server, "sch_set_sheet_size", {"paper": "A3"})
+    invalid_resize = await call_tool_text(server, "sch_set_sheet_size", {"paper": "BAD"})
+    auto_resize = await call_tool_text(server, "sch_auto_resize_sheet", {})
+    updated = await call_tool_text(
+        server,
+        "sch_update_properties",
+        {"reference": "R1", "field": "Value", "value": "47k"},
+    )
+    moved = await call_tool_text(
+        server,
+        "sch_move_symbol",
+        {"reference": "R1", "x_mm": 101.6, "y_mm": 76.2},
+    )
+    missing_move = await call_tool_text(
+        server,
+        "sch_move_symbol",
+        {"reference": "R99", "x_mm": 10.0, "y_mm": 10.0},
+    )
+    annotated = await call_tool_text(server, "sch_annotate", {"start_number": 10, "order": "sheet"})
+    wires = (sample_project / "demo.kicad_sch").read_text(encoding="utf-8")
+    wire_id = re.search(r'\(wire.*?\(uuid "([^"]+)"\)', wires, flags=re.DOTALL)
+    assert wire_id is not None
+    deleted_wire = await call_tool_text(server, "sch_delete_wire", {"wire_id": wire_id.group(1)})
+    missing_wire = await call_tool_text(server, "sch_delete_wire", {"wire_id": "missing"})
+    deleted_symbol = await call_tool_text(server, "sch_delete_symbol", {"reference": "R10"})
+    missing_symbol = await call_tool_text(server, "sch_delete_symbol", {"reference": "R404"})
+    reload_result = await call_tool_text(server, "sch_reload", {})
+
+    assert "Symbols (2 total)" in symbols
+    assert "Pin 1" in pin_positions and "Pin 2" in pin_positions
+    assert "does not support unit 2" in bad_unit
+    assert '"pins"' in swappable
+    assert "Recorded pin swap" in pin_swap
+    assert "not available" in gate_swap
+    assert "Routed" in routed
+    assert "Connectivity groups" in connectivity
+    assert "Trace for net 'MID'" in trace or "was not found" in trace
+    assert "Schematic bounding boxes" in bounding
+    assert "Free placement coordinates" in free
+    assert "Sheet resized" in resized
+    assert "Unknown paper size" in invalid_resize
+    assert "already fits all symbols" in auto_resize or "Sheet resized" in auto_resize
+    assert "Updated R1.Value" in updated
+    assert "Moved symbol 'R1'" in moved
+    assert "Reference 'R99' was not found" in missing_move
+    assert "Annotated 2 symbol(s)." in annotated
+    assert "Deleted wire" in deleted_wire
+    assert "was not found" in missing_wire
+    assert "Deleted 1 symbol block(s)" in deleted_symbol
+    assert "Reference 'R404' was not found" in missing_symbol
+    assert "updated" in reload_result.lower() or "reload" in reload_result.lower()
 
 
 @pytest.mark.anyio
