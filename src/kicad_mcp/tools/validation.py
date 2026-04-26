@@ -691,6 +691,33 @@ def _evaluate_schematic_connectivity_gate() -> GateOutcome:
     )
 
 
+def _evaluate_pre_sync_gate() -> GateOutcome:
+    """Validate that schematic state is safe to transfer into PCB footprints."""
+    outcomes = [_evaluate_schematic_gate(), _evaluate_schematic_connectivity_gate()]
+    blocking = [outcome for outcome in outcomes if outcome.status != "PASS"]
+    if blocking:
+        details: list[str] = []
+        for outcome in blocking:
+            details.append(f"{outcome.name} quality gate: {outcome.status}")
+            details.append(outcome.summary)
+            details.extend(outcome.details[:6])
+        return GateOutcome(
+            name="Pre-sync",
+            status="FAIL",
+            summary=(
+                "Schematic checks must pass before PCB sync to avoid transferring "
+                "a stale or broken netlist."
+            ),
+            details=details,
+        )
+    return GateOutcome(
+        name="Pre-sync",
+        status="PASS",
+        summary="Schematic is ready for PCB sync.",
+        details=["ERC/connectivity blockers: 0"],
+    )
+
+
 def _evaluate_pcb_gate() -> GateOutcome:
     _, report, error = _run_drc_report("pcb_quality_gate.json")
     if report is None:
@@ -1337,6 +1364,7 @@ def _evaluate_project_gate(
     return [
         _evaluate_schematic_gate(),
         _evaluate_schematic_connectivity_gate(),
+        _evaluate_pre_sync_gate(),
         _evaluate_pcb_gate(),
         _evaluate_pcb_placement_gate(),
         _evaluate_pcb_transfer_gate(),
@@ -1369,8 +1397,19 @@ def _render_project_gate_report(
             else "- Blocking issues remain. Do not treat this design as production-ready yet."
         ),
     ]
+    if _design_intent_warning():
+        lines.append("WARN: Design intent not set - placement scoring will use defaults.")
     lines.extend(_format_gate(outcome) for outcome in outcomes)
     return "\n\n".join(lines)
+
+
+def _design_intent_warning() -> bool:
+    try:
+        from .project import resolve_design_intent
+
+        return resolve_design_intent().source == "none"
+    except Exception:
+        return False
 
 
 def _project_gate_report_payload(

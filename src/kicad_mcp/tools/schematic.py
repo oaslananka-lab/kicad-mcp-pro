@@ -40,6 +40,7 @@ from ..models.schematic import (
     UpdatePropertiesInput,
 )
 from ..utils.cache import clear_ttl_cache, ttl_cache
+from ..utils.schematic_router import RouterBBox, SchematicRouter
 from ..utils.sexpr import (
     _escape_sexpr_string,
     _extract_block,
@@ -130,6 +131,7 @@ SCHEMATIC_PUBLIC_TOOL_NAMES = (
     "sch_list_sheets",
     "sch_get_sheet_info",
     "sch_route_wire_between_pins",
+    "sch_add_missing_junctions",
     "sch_get_connectivity_graph",
     "sch_trace_net",
     "sch_auto_place_symbols",
@@ -206,6 +208,11 @@ SCHEMATIC_BACKEND_CAPABILITY_MATRIX: dict[str, SchematicCapabilityEntry] = {
         "kicad_sch_api_support": "wrapper_needed",
         "verified_surface": [],
         "notes": "No-connect markers remain a compatibility wrapper around the KiCad file format.",
+    },
+    "sch_add_missing_junctions": {
+        "kicad_sch_api_support": "wrapper_needed",
+        "verified_surface": [],
+        "notes": "Missing schematic junctions are repaired from file-level wire geometry.",
     },
     "sch_update_properties": {
         "kicad_sch_api_support": "wrapper_needed",
@@ -690,6 +697,25 @@ def _auto_layout_point(index: int) -> tuple[float, float]:
 # file-level API, so we size conservatively.
 _SYMBOL_HALF_W_MM = 10.16   # ~4 pins wide  (2 × 2.54 × 2)
 _SYMBOL_HALF_H_MM = 7.62    # ~3 pins tall
+
+
+@dataclass(frozen=True)
+class BBox:
+    """Axis-aligned schematic obstacle bounds in millimetres."""
+
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+
+    def padded(self, amount_mm: float) -> BBox:
+        return BBox(
+            self.x_min - amount_mm,
+            self.y_min - amount_mm,
+            self.x_max + amount_mm,
+            self.y_max + amount_mm,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Footprint validation (v2.1.1)
@@ -1564,6 +1590,56 @@ def _extract_wires(content: str) -> list[dict[str, Any]]:
     return wires
 
 
+def _wire_segments_from_content(content: str) -> list[tuple[float, float, float, float]]:
+    return [
+        (float(wire["x1"]), float(wire["y1"]), float(wire["x2"]), float(wire["y2"]))
+        for wire in _extract_wires(content)
+    ]
+
+
+def _get_symbol_bboxes(sexpr_content: str) -> list[BBox]:
+    symbols: list[dict[str, Any]] = []
+    cursor = 0
+    while cursor < len(sexpr_content):
+        if sexpr_content[cursor:].startswith("(symbol"):
+            block, length = _extract_block(sexpr_content, cursor)
+            if block:
+                parsed = _parse_symbol_block(block)
+                if parsed is not None:
+                    symbols.append(parsed)
+                cursor += length
+                continue
+        cursor += 1
+    return [BBox(*_symbol_bbox_bounds(symbol)) for symbol in symbols]
+
+
+def _remove_wire_blocks(content: str) -> str:
+    pieces: list[str] = []
+    cursor = 0
+    last = 0
+    while cursor < len(content):
+        if content[cursor:].startswith("(wire"):
+            block, length = _extract_block(content, cursor)
+            if block and _parse_wire_block(block) is not None:
+                pieces.append(content[last:cursor])
+                cursor += length
+                last = cursor
+                continue
+        cursor += 1
+    pieces.append(content[last:])
+    return "".join(pieces)
+
+
+def _normalize_schematic_wire_connectivity(content: str) -> str:
+    segments = _deduplicate_segments(_wire_segments_from_content(content))
+    if not segments:
+        return content
+    updated = _remove_wire_blocks(content)
+    for segment in segments:
+        updated = _append_before_sheet_instances(updated, wire_block(*segment))
+    return _insert_junctions_for_batch(updated, _detect_t_intersections(segments))
+
+
 def _extract_labels(content: str) -> list[dict[str, Any]]:
     labels: list[dict[str, Any]] = []
     for match in re.finditer(
@@ -1630,6 +1706,22 @@ def run_auto_annotate(start_number: int = 1, order: str = "alpha") -> str:
 
     transactional_write(mutator)
     return f"Auto-annotated {len(updates)} symbol(s)."
+
+
+def run_auto_add_missing_junctions() -> str:
+    """Module-level missing-junction fixer for project_auto_fix_loop."""
+    sch_file = _get_schematic_file()
+    before = sch_file.read_text(encoding="utf-8", errors="ignore")
+    before_count = len(_existing_junction_points(before))
+    transactional_write(
+        lambda current: _insert_junctions_for_batch(
+            current,
+            _detect_t_intersections(_deduplicate_segments(_wire_segments_from_content(current))),
+        )
+    )
+    after = sch_file.read_text(encoding="utf-8", errors="ignore")
+    inserted = max(0, len(_existing_junction_points(after)) - before_count)
+    return f"Inserted {inserted} missing junction(s)."
 
 
 def _get_symbol_library_dir() -> Path:
@@ -1972,6 +2064,201 @@ def _segment_key(
     start = (round(segment[0], 4), round(segment[1], 4))
     end = (round(segment[2], 4), round(segment[3], 4))
     return (start, end) if start <= end else (end, start)
+
+
+def _point_on_segment_midpoint(
+    point: tuple[float, float],
+    segment: tuple[float, float, float, float],
+) -> bool:
+    px, py = point
+    x1, y1, x2, y2 = segment
+    endpoints = {_coord_pair_key(x1, y1), _coord_pair_key(x2, y2)}
+    if _coord_pair_key(px, py) in endpoints:
+        return False
+    if abs(x1 - x2) <= SNAP_TOLERANCE_MM:
+        return (
+            abs(px - x1) <= SNAP_TOLERANCE_MM
+            and min(y1, y2) + SNAP_TOLERANCE_MM < py < max(y1, y2) - SNAP_TOLERANCE_MM
+        )
+    if abs(y1 - y2) <= SNAP_TOLERANCE_MM:
+        return (
+            abs(py - y1) <= SNAP_TOLERANCE_MM
+            and min(x1, x2) + SNAP_TOLERANCE_MM < px < max(x1, x2) - SNAP_TOLERANCE_MM
+        )
+    return False
+
+
+def _detect_t_intersections(
+    wires: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float]]:
+    """Return wire endpoints that land on another wire's interior."""
+    junctions: set[tuple[float, float]] = set()
+    for index, segment in enumerate(wires):
+        endpoints = ((segment[0], segment[1]), (segment[2], segment[3]))
+        for point in endpoints:
+            if any(
+                other_index != index and _point_on_segment_midpoint(point, other)
+                for other_index, other in enumerate(wires)
+            ):
+                junctions.add(_coord_pair_key(point[0], point[1]))
+    return sorted(junctions)
+
+
+def _deduplicate_segments(
+    segments: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float, float, float]]:
+    """Remove duplicate wire segments and merge collinear touching runs."""
+    unique: dict[
+        tuple[tuple[float, float], tuple[float, float]],
+        tuple[float, float, float, float],
+    ] = {}
+    for segment in segments:
+        x1, y1, x2, y2 = segment
+        if abs(x1 - x2) <= SNAP_TOLERANCE_MM and abs(y1 - y2) <= SNAP_TOLERANCE_MM:
+            continue
+        key = _segment_key(segment)
+        if key not in unique:
+            (sx, sy), (ex, ey) = key
+            unique[key] = (sx, sy, ex, ey)
+
+    horizontal: dict[float, list[tuple[float, float]]] = {}
+    vertical: dict[float, list[tuple[float, float]]] = {}
+    diagonal: list[tuple[float, float, float, float]] = []
+    for x1, y1, x2, y2 in unique.values():
+        if abs(y1 - y2) <= SNAP_TOLERANCE_MM:
+            horizontal.setdefault(round(y1, 4), []).append((min(x1, x2), max(x1, x2)))
+        elif abs(x1 - x2) <= SNAP_TOLERANCE_MM:
+            vertical.setdefault(round(x1, 4), []).append((min(y1, y2), max(y1, y2)))
+        else:
+            diagonal.append((x1, y1, x2, y2))
+
+    merged: list[tuple[float, float, float, float]] = []
+    for y, intervals in sorted(horizontal.items()):
+        current_start: float | None = None
+        current_end: float | None = None
+        for start, end in sorted(intervals):
+            if current_start is None or current_end is None:
+                current_start, current_end = start, end
+            elif start <= current_end + SNAP_TOLERANCE_MM:
+                current_end = max(current_end, end)
+            else:
+                merged.append((current_start, y, current_end, y))
+                current_start, current_end = start, end
+        if current_start is not None and current_end is not None:
+            merged.append((current_start, y, current_end, y))
+
+    for x, intervals in sorted(vertical.items()):
+        current_start = None
+        current_end = None
+        for start, end in sorted(intervals):
+            if current_start is None or current_end is None:
+                current_start, current_end = start, end
+            elif start <= current_end + SNAP_TOLERANCE_MM:
+                current_end = max(current_end, end)
+            else:
+                merged.append((x, current_start, x, current_end))
+                current_start, current_end = start, end
+        if current_start is not None and current_end is not None:
+            merged.append((x, current_start, x, current_end))
+
+    merged.extend(diagonal)
+    return merged
+
+
+def _existing_junction_points(content: str) -> set[tuple[float, float]]:
+    points: set[tuple[float, float]] = set()
+    for match in re.finditer(r"\(junction\s+\(at\s+([-\d.]+)\s+([-\d.]+)\)", content):
+        points.add(_coord_pair_key(float(match.group(1)), float(match.group(2))))
+    return points
+
+
+def _junction_block(x_mm: float, y_mm: float) -> str:
+    return (
+        f"\t(junction (at {_fmt_mm(x_mm)} {_fmt_mm(y_mm)})\n"
+        "\t\t(diameter 0)\n"
+        f'\t\t(uuid "{new_uuid()}")\n'
+        "\t)"
+    )
+
+
+def _insert_junctions_for_batch(
+    sexpr_content: str,
+    points: list[tuple[float, float]],
+) -> str:
+    """Insert missing KiCad junction blocks for the supplied coordinates."""
+    existing = _existing_junction_points(sexpr_content)
+    updated = sexpr_content
+    for x_mm, y_mm in sorted({_coord_pair_key(x, y) for x, y in points}):
+        if (x_mm, y_mm) in existing:
+            continue
+        updated = _append_before_sheet_instances(updated, _junction_block(x_mm, y_mm))
+        existing.add((x_mm, y_mm))
+    return updated
+
+
+def _segment_intersects_bbox(
+    segment: tuple[float, float, float, float],
+    bbox: BBox,
+) -> bool:
+    x1, y1, x2, y2 = segment
+    if abs(y1 - y2) <= SNAP_TOLERANCE_MM:
+        if bbox.y_min + SNAP_TOLERANCE_MM < y1 < bbox.y_max - SNAP_TOLERANCE_MM:
+            return max(min(x1, x2), bbox.x_min) <= min(max(x1, x2), bbox.x_max)
+        return False
+    if abs(x1 - x2) <= SNAP_TOLERANCE_MM:
+        if bbox.x_min + SNAP_TOLERANCE_MM < x1 < bbox.x_max - SNAP_TOLERANCE_MM:
+            return max(min(y1, y2), bbox.y_min) <= min(max(y1, y2), bbox.y_max)
+        return False
+    return False
+
+
+def _route_crosses_obstacle(
+    segments: list[tuple[float, float, float, float]],
+    obstacles: list[BBox],
+) -> bool:
+    return any(
+        _segment_intersects_bbox(segment, obstacle)
+        for segment in segments
+        for obstacle in obstacles
+    )
+
+
+def _route_avoiding_obstacles(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    obstacles: list[BBox],
+    snap_to_grid: bool,
+) -> tuple[list[tuple[float, float, float, float]], str | None]:
+    """Route L-shape first, then a simple padded Z-route around obstacles."""
+    direct = _deduplicate_segments(_manhattan_segments(start, end, snap_to_grid))
+    padded = [obstacle.padded(5.0) for obstacle in obstacles]
+    if not direct or not _route_crosses_obstacle(direct, padded):
+        return direct, None
+
+    router = SchematicRouter(
+        grid_mm=SCHEMATIC_GRID_MM,
+        obstacles=[
+            RouterBBox(obstacle.x_min, obstacle.y_min, obstacle.x_max, obstacle.y_max)
+            for obstacle in padded
+        ],
+    )
+    routed = router.route(start, end, max_bends=4)
+    if routed:
+        return _deduplicate_segments(routed), None
+
+    max_y = max(max(start[1], end[1]), *(bbox.y_max for bbox in padded))
+    min_y = min(min(start[1], end[1]), *(bbox.y_min for bbox in padded))
+    candidate_offsets = [max_y + SCHEMATIC_GRID_MM, min_y - SCHEMATIC_GRID_MM]
+    for via_y in candidate_offsets:
+        raw = [
+            (start[0], start[1], start[0], via_y),
+            (start[0], via_y, end[0], via_y),
+            (end[0], via_y, end[0], end[1]),
+        ]
+        segments = _deduplicate_segments(raw)
+        if segments and not _route_crosses_obstacle(segments, padded):
+            return segments, None
+    return direct, "WARNING: obstacle_bypass_failed"
 
 
 def _resolve_net_endpoint(
@@ -2722,7 +3009,7 @@ def _transactional_write_to_schematic(mutator: Callable[[str], str]) -> str:
     """Read, mutate, validate, and atomically rewrite the active schematic."""
     sch_file = _get_schematic_file()
     current = sch_file.read_text(encoding="utf-8")
-    updated = mutator(current)
+    updated = _normalize_schematic_wire_connectivity(mutator(current))
     _validate_schematic_text(updated)
     with NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=sch_file.parent) as handle:
         handle.write(updated)
@@ -3746,6 +4033,7 @@ def register(mcp: FastMCP) -> None:
                 ")\n"
             )
         )
+        content = _normalize_schematic_wire_connectivity(content)
         _validate_schematic_text(content)
         _get_schematic_file().write_text(content, encoding="utf-8")
         result = _reload_schematic()
@@ -4086,7 +4374,14 @@ def register(mcp: FastMCP) -> None:
         if end is None:
             return f"Pin {payload.pin2} was not found on {payload.ref2}."
 
-        segments = _manhattan_segments(start, end, payload.snap_to_grid)
+        content = _get_schematic_file().read_text(encoding="utf-8", errors="ignore")
+        obstacles = _get_symbol_bboxes(content)
+        segments, routing_warning = _route_avoiding_obstacles(
+            start,
+            end,
+            obstacles,
+            payload.snap_to_grid,
+        )
         if not segments:
             return (
                 f"{payload.ref1}:{payload.pin1} and {payload.ref2}:{payload.pin2} "
@@ -4104,7 +4399,16 @@ def register(mcp: FastMCP) -> None:
         return (
             f"{result}\nRouted {len(segments)} wire segment(s) between "
             f"{payload.ref1}:{payload.pin1} and {payload.ref2}:{payload.pin2}."
+            + (f"\n{routing_warning}" if routing_warning else "")
         )
+
+    @mcp.tool()
+    @headless_compatible
+    def sch_add_missing_junctions() -> str:
+        """Insert missing schematic junctions at T-intersection wire endpoints."""
+        summary = run_auto_add_missing_junctions()
+        result = _reload_schematic()
+        return f"{result}\n{summary}"
 
     @mcp.tool()
     def sch_get_connectivity_graph() -> str:

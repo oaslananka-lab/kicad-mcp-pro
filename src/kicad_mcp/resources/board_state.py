@@ -138,24 +138,26 @@ def _manifest_json() -> str:
 
 def _gate_history_json() -> str:
     from ..tools.validation import _evaluate_project_gate
+    from .gate_history import GateHistory
 
     outcomes = _evaluate_project_gate()
+    history = GateHistory.for_active_project()
+    for outcome in outcomes:
+        history.record(outcome)
     return json.dumps(
         {
-            "history": [
+            "history": history.latest(10),
+            "latest": history.latest(10),
+            "regressions": history.regression_check(),
+            "current": [
                 {
-                    "sequence": 1,
-                    "outcomes": [
-                        {
-                            "name": outcome.name,
-                            "status": outcome.status,
-                            "summary": outcome.summary,
-                            "details": outcome.details,
-                        }
-                        for outcome in outcomes
-                    ],
+                    "name": outcome.name,
+                    "status": outcome.status,
+                    "summary": outcome.summary,
+                    "details": outcome.details,
                 }
-            ]
+                for outcome in outcomes
+            ],
         },
         indent=2,
         sort_keys=True,

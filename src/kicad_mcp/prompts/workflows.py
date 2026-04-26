@@ -44,8 +44,74 @@ Move a design from schematic capture to PCB layout.
 3. Run ERC and power checks.
 4. Export the netlist.
 5. Inspect footprints and assign missing ones.
-6. Move footprints, route key nets, and refill zones.
-7. Run DRC and compare PCB versus schematic footprints.
+6. Move footprints, then do not skip the post-placement routing pass:
+   a. `route_export_dsn()`
+   b. `route_autoroute_freerouting()` — Docker-first, JAR fallback
+   c. `route_import_ses()`
+   d. `pcb_refill_zones()`
+   e. `run_drc()`
+7. Compare PCB versus schematic footprints.
+""".strip()
+        return [TextContent(type="text", text=text)]
+
+    @mcp.prompt()
+    def professional_circuit_design(
+        circuit_description: str = "",
+        board_size_mm: str = "100x80",
+        layer_count: str = "2",
+        target_fab: str = "jlcpcb_standard",
+    ) -> list[TextContent]:
+        """Canonical workflow for a complete professional circuit design."""
+        text = f"""
+# Professional Circuit Design Workflow
+
+Circuit: {circuit_description or "(not specified)"}
+Board: {board_size_mm} mm, {layer_count} copper layer(s), target fab {target_fab}
+
+1. Project setup:
+   - `kicad_get_version()`
+   - `kicad_create_new_project()` or `kicad_set_project()`
+   - `project_set_design_intent()` before schematic work
+   - Read `kicad://project/info`
+2. Schematic capture:
+   - Use `sch_find_free_placement()` before placing symbols
+   - Add power symbols before dependent circuits
+   - Route wires, then call `sch_add_missing_junctions()`
+   - Run `sch_check_power_flags()` and `run_erc()`
+3. PCB transfer and placement:
+   - `pcb_set_board_outline()`
+   - `pcb_sync_from_schematic()`; the pre-sync gate blocks dirty schematics
+   - `pcb_auto_place_force_directed()` or the automatic sync placement result
+   - `pcb_place_decoupling_caps()`
+4. Routing:
+   - `route_export_dsn()`
+   - `route_autoroute_freerouting()`
+   - `route_import_ses()`
+   - `pcb_refill_zones()`
+5. Validation and release:
+   - `project_full_validation_loop(max_iterations=5)`
+   - `pcb_score_placement()`
+   - `check_design_for_manufacture(profile="{target_fab}")`
+   - `export_manufacturing_package()` only after `project_quality_gate()` is PASS
+
+Do not skip a stage. If a gate fails, read `kicad://project/fix_queue`, apply the
+first recommended fix, and rerun the relevant gate.
+""".strip()
+        return [TextContent(type="text", text=text)]
+
+    @mcp.prompt()
+    def post_placement_routing() -> list[TextContent]:
+        """Route a placed PCB through DSN, FreeRouting, SES import, and DRC."""
+        text = """
+Run the mandatory post-placement routing loop.
+
+1. Confirm placement is acceptable with `pcb_score_placement()`.
+2. Export routing input with `route_export_dsn()`.
+3. Run `route_autoroute_freerouting()` — run this after placement and do not skip it.
+4. Import the routed result with `route_import_ses()`.
+5. Refill copper with `pcb_refill_zones()`.
+6. Run `run_drc()` and inspect `kicad://project/fix_queue`.
+7. Repeat only the failing step; do not restart schematic capture unless the transfer gate fails.
 """.strip()
         return [TextContent(type="text", text=text)]
 

@@ -64,12 +64,32 @@ GATE_FIXERS: dict[str, list[FixerAction]] = {
     ],
     "Schematic connectivity": [
         FixerAction(
+            tool="sch_add_missing_junctions",
+            description="Insert missing junctions at wire T-intersections.",
+            auto_applicable=True,
+            callable_import="tools.schematic:run_auto_add_missing_junctions",
+        ),
+        FixerAction(
             tool="sch_check_power_flags",
             description="Add missing PWR_FLAG symbols to power nets.",
         ),
         FixerAction(
             tool="sch_analyze_net_compilation",
             description="Inspect net compilation errors and fix dangling labels.",
+        ),
+    ],
+    "Pre-sync": [
+        FixerAction(
+            tool="sch_add_missing_junctions",
+            description="Repair missing schematic junctions before PCB sync.",
+            auto_applicable=True,
+            callable_import="tools.schematic:run_auto_add_missing_junctions",
+        ),
+        FixerAction(
+            tool="sch_annotate",
+            description="Annotate un-annotated symbols before PCB sync.",
+            auto_applicable=True,
+            callable_import="tools.schematic:run_auto_annotate",
         ),
     ],
     "PCB": [
@@ -133,7 +153,7 @@ GATE_FIXERS: dict[str, list[FixerAction]] = {
 }
 
 # Gate names that, when failing, block *all* downstream gates.
-BLOCKING_GATES: frozenset[str] = frozenset({"Schematic", "Schematic connectivity"})
+BLOCKING_GATES: frozenset[str] = frozenset({"Schematic", "Schematic connectivity", "Pre-sync"})
 
 
 def fixers_for_gate(gate_name: str) -> list[FixerAction]:

@@ -13,12 +13,12 @@
 
 The personal GitHub repository is the main public source. Automated GitHub CI/CD runs from the `oaslananka-lab` organization mirror; Azure DevOps, GitLab, and personal GitHub workflows stay manually triggered.
 
-## What's New in 2.4
+## What's New in 3.0
 
-- KiCad 10 parity improved for variants, graphical DRC, time-domain routing, 3D PDF export, and schematic hop-over control.
-- High-speed review flow now covers time-domain tuning, via-stub resonance warnings, thermal via sizing, and EMC return-path sweeps.
-- MCP surface expanded with new resources, prompt workflows, `agent_full`, HTTP discovery metadata, and opt-in `/metrics`.
-- Azure validation now includes dependency auditing and a Windows validation lane, with `Dockerfile.kicad10` available for CI images.
+- Schematic routing now repairs missing T-intersection junctions and avoids symbol bodies before PCB sync.
+- `pcb_sync_from_schematic()` runs a pre-sync gate and can auto-place footprints after transfer.
+- New canonical prompts guide agents through professional design and post-placement routing loops.
+- Added lightweight A* schematic routing, PDN mesh checks, persisted gate history, and ten new YAML subcircuit templates.
 
 ## Features
 
@@ -26,13 +26,13 @@ The personal GitHub repository is the main public source. Automated GitHub CI/CD
 - Project intent helpers with `project_set_design_intent()` and `project_get_design_intent()` for connector, decoupling, power-tree, analog/digital partitioning, sensor clustering, RF, and fab assumptions.
 - KiCad 10.x-first runtime with best-effort 9.x support and cross-platform CLI/library discovery.
 - PCB tools for board inspection, tracks, vias, footprints, text, shapes, outline editing, and zone refill.
-- Schematic tools for symbols, wires, labels, buses, no-connect markers, property updates, annotation, netlist-aware auto-layout, hop-over display control, and IPC reload.
+- Schematic tools for symbols, wires, labels, buses, no-connect markers, missing-junction repair, property updates, annotation, netlist-aware auto-layout, hop-over display control, and IPC reload.
 - Library tools for symbol search, footprint search, datasheet lookup, footprint assignment, and custom symbol generation.
 - Validation tools for DRC, ERC, DFM, courtyard issues, silk overlaps, and schematic-versus-PCB footprint checks.
 - Project quality gates for schematic, schematic connectivity, PCB, placement, PCB transfer, manufacturing, and gated manufacturing handoff via `export_manufacturing_package()`.
 - Export tools for Gerber, drill, BOM, PDF, netlist, STEP, render, pick-and-place, IPC-2581, SVG, and DXF.
 - Signal integrity tools for impedance synthesis, differential skew checks, stackup planning, via-stub review, and decoupling heuristics.
-- Power integrity tools for voltage-drop estimation, copper current checks, plane generation, and thermal via guidance.
+- Power integrity tools for PDN mesh checks, voltage-drop estimation, copper current checks, plane generation, and thermal via guidance.
 - EMC tools for plane coverage, return-path review, via stitching, diff-pair symmetry, and bundled compliance sweeps.
 - Simulation tools for SPICE operating-point, AC, transient, DC sweep, and loop-stability checks.
 - MCP resources for live board/project state, quality gates, fix queues, connectivity, and placement review.

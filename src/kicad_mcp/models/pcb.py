@@ -180,6 +180,8 @@ class SyncPcbFromSchematicInput(BaseModel):
     allow_open_board: bool = Field(default=False)
     use_net_names: bool = Field(default=True)
     replace_mismatched: bool = Field(default=False)
+    force: bool = Field(default=False)
+    auto_place: bool = Field(default=True)
 
 
 class AutoPlaceBySchematicInput(BaseModel):

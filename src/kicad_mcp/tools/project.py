@@ -727,6 +727,11 @@ def _render_project_spec_resolution(resolution: ProjectSpecResolution) -> str:
     lines = ["Project design spec resolution:"]
     lines.append(f"- Explicit source: {source_label}")
     lines.append(f"- Explicit path: {resolution.path or '(none)'}")
+    if resolution.source == "none":
+        lines.append(
+            "- Warning: No design intent set. Call project_set_design_intent() "
+            "to unlock full scoring."
+        )
     lines.append(
         f"- Inferred connectors / decoupling / sensors: "
         f"{len(resolution.inferred.connector_refs)} / "
@@ -906,7 +911,7 @@ def register(mcp: FastMCP) -> None:
         cost: dict[str, Any] | None = None,
         thermal: dict[str, Any] | None = None,
     ) -> str:
-        """Store high-level design intent used by placement, routing, and release-quality gates.
+        """Call this FIRST to store design intent for placement, routing, and gates.
 
         v1 parameters (all boards): connector_refs, decoupling_pairs, critical_nets,
         power_tree_refs, analog_refs, digital_refs, sensor_cluster_refs, rf_keepout_regions,
@@ -1277,6 +1282,136 @@ def register(mcp: FastMCP) -> None:
             remaining_issues=remaining,
             ready_for_release=ready,
         )
+
+    @mcp.tool()
+    @headless_compatible
+    def project_full_validation_loop(
+        max_iterations: int = 5,
+        fix_tier: Literal["auto_only", "suggest"] = "auto_only",
+    ) -> AutoFixLoopPayload:
+        """Run ERC/DRC/project gates in a bounded fix-and-rerun validation loop."""
+        import importlib
+
+        from .validation import GateOutcome, _combined_status, _evaluate_project_gate
+
+        max_iterations = max(1, min(max_iterations, 20))
+        outcomes = _evaluate_project_gate()
+        fix_log: list[str] = []
+        iterations_used = 1
+
+        def _resolve_callable(import_str: str) -> Callable[[], object] | None:
+            if not import_str:
+                return None
+            try:
+                mod_path, func_name = import_str.rsplit(":", 1)
+                module = importlib.import_module(f"kicad_mcp.{mod_path}")
+                candidate = getattr(module, func_name, None)
+                return candidate if callable(candidate) else None
+            except Exception:
+                return None
+
+        while iterations_used < max_iterations:
+            if all(outcome.status == "PASS" for outcome in outcomes):
+                break
+            blocker = next((outcome for outcome in outcomes if outcome.status != "PASS"), None)
+            if blocker is None:
+                break
+            fixers = fixers_for_gate(blocker.name)
+            auto_fixer = next((fixer for fixer in fixers if fixer.auto_applicable), None)
+            if auto_fixer is None or fix_tier == "suggest":
+                break
+            fn = _resolve_callable(auto_fixer.callable_import)
+            if fn is None:
+                break
+            try:
+                fix_result = fn()
+                fix_log.append(
+                    f"[iter {iterations_used}] {blocker.name}: "
+                    f"{auto_fixer.tool} -> {fix_result}"
+                )
+            except Exception as exc:
+                fix_log.append(
+                    f"[iter {iterations_used}] {blocker.name}: "
+                    f"{auto_fixer.tool} raised {exc}"
+                )
+                break
+            outcomes = _evaluate_project_gate()
+            iterations_used += 1
+
+        actions: list[AutoFixAction] = []
+        for outcome in outcomes:
+            if outcome.status == "PASS":
+                continue
+            fixers = fixers_for_gate(outcome.name)
+            agent_fixer = next((fixer for fixer in fixers if not fixer.auto_applicable), None)
+            auto_fixer = next((fixer for fixer in fixers if fixer.auto_applicable), None)
+            chosen = agent_fixer or auto_fixer
+            actions.append(
+                AutoFixAction(
+                    gate=outcome.name,
+                    status=outcome.status,
+                    auto_fixed=False,
+                    auto_fix_description=auto_fixer.description if auto_fixer else "",
+                    agent_tool=chosen.tool if chosen else "project_quality_gate",
+                    agent_description=chosen.description if chosen else outcome.summary,
+                )
+            )
+
+        combined = _combined_status(
+            [
+                GateOutcome(
+                    name=outcome.name,
+                    status=outcome.status,
+                    summary=outcome.summary,
+                    details=outcome.details,
+                )
+                for outcome in outcomes
+            ]
+        )
+        lines = [
+            f"project_full_validation_loop: {iterations_used}/{max_iterations} iteration(s) used.",
+        ]
+        if fix_log:
+            lines.append("Auto-fixes applied:")
+            lines.extend(f"  {entry}" for entry in fix_log)
+        if not actions:
+            lines.append("PASS after validation loop.")
+        elif fix_tier == "suggest":
+            lines.append("Suggested fixes:")
+            lines.extend(
+                f"  [SUGGEST] {action.gate}: call {action.agent_tool}() "
+                f"- {action.agent_description}"
+                for action in actions
+            )
+        else:
+            lines.append("PARTIAL: remaining issues require agent or manual action.")
+            lines.extend(
+                f"  [REMAINING] {action.gate}: call {action.agent_tool}() "
+                f"- {action.agent_description}"
+                for action in actions
+            )
+        return AutoFixLoopPayload(
+            text="\n".join(lines),
+            gate_status=combined,
+            iterations_used=iterations_used,
+            actions=actions,
+            remaining_issues=len(actions),
+            ready_for_release=not actions,
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def project_gate_trend(gate_name: str, last_n: int = 10) -> str:
+        """Return persisted quality-gate trend history for one gate."""
+        from ..resources.gate_history import GateHistory
+
+        history = GateHistory.for_active_project()
+        payload = {
+            "gate_name": gate_name,
+            "history": history.trend(gate_name, max(1, min(last_n, 100))),
+            "regressions": history.regression_check(),
+        }
+        return json.dumps(payload, indent=2, sort_keys=True)
 
     @mcp.tool()
     @headless_compatible

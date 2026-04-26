@@ -59,6 +59,8 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "project_validate_design_spec",
             "project_get_next_action",
             "project_auto_fix_loop",
+            "project_full_validation_loop",
+            "project_gate_trend",
             "project_design_report",
             "kicad_list_recent_projects",
             "kicad_scan_directory",
@@ -161,6 +163,7 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "sch_build_circuit",
             "sch_get_pin_positions",
             "sch_route_wire_between_pins",
+            "sch_add_missing_junctions",
             "sch_get_connectivity_graph",
             "sch_trace_net",
             "sch_auto_place_symbols",
@@ -336,6 +339,7 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "and thermal spreading."
         ),
         "tools": [
+            "check_power_integrity",
             "pdn_calculate_voltage_drop",
             "pdn_recommend_decoupling_caps",
             "pdn_check_copper_weight",

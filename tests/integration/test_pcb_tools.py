@@ -300,6 +300,57 @@ async def test_pcb_sync_from_schematic_blocks_on_dirty_schematic(
 
 
 @pytest.mark.anyio
+async def test_pcb_sync_from_schematic_force_overrides_pre_sync_gate(
+    sample_project,
+    mock_kicad,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("kicad_mcp.tools.pcb._board_is_open", lambda: False)
+    monkeypatch.setattr(
+        "kicad_mcp.tools.validation._evaluate_schematic_gate",
+        lambda: GateOutcome(
+            name="Schematic",
+            status="FAIL",
+            summary="ERC violations are still present.",
+            details=["ERC violations: 1"],
+        ),
+    )
+    monkeypatch.setattr(
+        "kicad_mcp.tools.validation._evaluate_schematic_connectivity_gate",
+        lambda: GateOutcome(
+            name="Schematic connectivity",
+            status="PASS",
+            summary="Connectivity is structurally sound.",
+            details=[],
+        ),
+    )
+    monkeypatch.setattr("kicad_mcp.tools.pcb._export_schematic_net_map", lambda: ({}, ""))
+    server = build_server("full")
+    await call_tool_text(
+        server,
+        "sch_build_circuit",
+        {
+            "symbols": [
+                {
+                    "library": "Device",
+                    "symbol_name": "R",
+                    "reference": "R1",
+                    "value": "10k",
+                    "footprint": "Resistor_SMD:R_0805",
+                    "x_mm": 50.8,
+                    "y_mm": 50.8,
+                }
+            ]
+        },
+    )
+
+    result = await call_tool_text(server, "pcb_sync_from_schematic", {"force": True})
+
+    assert "Pre-sync gate was overridden by force=True" in result
+    assert "New footprints added: 1" in result
+
+
+@pytest.mark.anyio
 async def test_pcb_sync_from_schematic_deduplicates_multi_unit_references(
     sample_project,
     mock_kicad,
@@ -857,8 +908,10 @@ async def test_pcb_place_decoupling_caps_moves_caps_near_ic(
     c2_x, c2_y, _ = _footprint_position(pcb_text, "C2")
 
     assert "Placed 2 decoupling capacitor(s) near U1." in result
+    assert "C1 placed" in result
+    assert "C2 placed" in result
     assert abs(c1_y - u1_y) <= 8.5
-    assert abs(c2_y - u1_y) <= 8.5
+    assert abs(c2_y - u1_y) <= 10.5
     assert c1_x != pytest.approx(c2_x)
 
 

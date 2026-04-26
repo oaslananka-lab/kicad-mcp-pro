@@ -170,6 +170,11 @@
     ],
     "notes": "Pin-to-pin routing is exposed in kicad-sch-api, but the wrapper keeps the current Manhattan-routing contract deterministic."
   },
+  "sch_add_missing_junctions": {
+    "kicad_sch_api_support": "wrapper_needed",
+    "verified_surface": [],
+    "notes": "Missing schematic junctions are repaired from file-level wire geometry."
+  },
   "sch_get_connectivity_graph": {
     "kicad_sch_api_support": "wrapper_needed",
     "verified_surface": [

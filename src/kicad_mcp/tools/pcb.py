@@ -80,6 +80,11 @@ BOARD_FILE_VERSION = "20250216"
 STRING_PATTERN = r'"((?:\\.|[^"\\])*)"'
 FLOAT_PATTERN = r"-?\d+(?:\.\d+)?"
 PLACEMENT_MARGIN_MM = 1.27
+DECOUPLING_RULES: dict[str, dict[str, object]] = {
+    "100n": {"max_dist_mm": 2.5, "prefer_side": "same"},
+    "1u": {"max_dist_mm": 5.0, "prefer_side": "same"},
+    "10u": {"max_dist_mm": 10.0, "prefer_side": "same"},
+}
 STACKUP_STATE_FILE = "stackup_profile.json"
 _COPPER_LAYER_SEQUENCE = [
     "F_Cu",
@@ -997,6 +1002,111 @@ def _strategy_board_positions(
     return positions
 
 
+def _placement_net_weight(net_name: str) -> float:
+    normalized = net_name.upper()
+    if not normalized or normalized in {"NC", "NO_CONNECT", "N/C"}:
+        return 0.0
+    if normalized in {"GND", "GNDA", "GNDD", "VCC", "VDD", "VSS"} or normalized.startswith(
+        ("+", "-")
+    ):
+        return 3.0
+    if normalized.endswith(("_P", "_N", "+", "-")):
+        return 5.0
+    return 1.0
+
+
+def _placement_nets_from_footprints(
+    footprints: dict[str, dict[str, Any]],
+) -> list[PlacementNet]:
+    refs_by_net: dict[str, set[str]] = {}
+    for reference, entry in footprints.items():
+        pad_nets = cast(dict[str, str], entry.get("pad_nets", {}))
+        for net_name in pad_nets.values():
+            if net_name:
+                refs_by_net.setdefault(net_name, set()).add(reference)
+    return [
+        PlacementNet(
+            name=net_name,
+            refs=sorted(refs),
+            weight=_placement_net_weight(net_name),
+        )
+        for net_name, refs in sorted(refs_by_net.items())
+        if len(refs) >= 2 and _placement_net_weight(net_name) > 0.0
+    ]
+
+
+def _decoupling_rule_for_value(value: str, fallback_max_distance_mm: float) -> dict[str, object]:
+    normalized = value.strip().lower().replace(" ", "")
+    for key, rule in DECOUPLING_RULES.items():
+        if normalized == key.lower():
+            return dict(rule)
+    return {"max_dist_mm": fallback_max_distance_mm, "prefer_side": "same"}
+
+
+def _auto_place_force_directed_board_file(
+    *,
+    grid_mm: float = 1.0,
+    max_seconds: float = 30.0,
+) -> str:
+    board_file = _get_pcb_file_for_sync()
+    board_content = _normalize_board_content(
+        board_file.read_text(encoding="utf-8", errors="ignore")
+    )
+    footprints = _parse_board_footprint_blocks(board_content)
+    movable = [
+        (reference, entry)
+        for reference, entry in sorted(footprints.items())
+        if entry["x_mm"] is not None and entry["y_mm"] is not None
+    ]
+    if len(movable) < 2:
+        return "Auto-placement skipped: fewer than two placed footprints."
+
+    x_min, y_min, x_max, y_max = _board_frame_mm(board_content, footprints)
+    components = [
+        PlacementComponent(
+            ref=reference,
+            x=float(entry["x_mm"]),
+            y=float(entry["y_mm"]),
+            w=float(entry["width_mm"]),
+            h=float(entry["height_mm"]),
+            fixed=False,
+        )
+        for reference, entry in movable
+    ]
+    nets = _placement_nets_from_footprints(footprints)
+    if not nets:
+        return "Auto-placement skipped: no multi-footprint named nets were found."
+
+    result = force_directed_placement(
+        components,
+        nets,
+        ForceDirectedConfig(
+            iterations=300,
+            k_spring=0.4,
+            k_repel=80.0,
+            board_w=max(1.0, x_max - x_min),
+            board_h=max(1.0, y_max - y_min),
+            seed=42,
+            grid_mm=grid_mm,
+            max_seconds=max_seconds,
+        ),
+    )
+    replacements: dict[str, str] = {}
+    for placed in result:
+        entry = footprints[placed.ref]
+        replacements[placed.ref] = _replace_root_at(
+            str(entry["block"]),
+            x_mm=placed.x,
+            y_mm=placed.y,
+            rotation=int(entry["rotation"]),
+        )
+    _transactional_board_write(lambda current: _replace_board_blocks(current, replacements, []))
+    return (
+        "Force-directed auto-placement completed after PCB sync: "
+        f"{len(replacements)} footprint(s), {len(nets)} weighted net(s)."
+    )
+
+
 def _mounting_hole_block(
     reference: str,
     x_mm: float,
@@ -1518,23 +1628,21 @@ def _collect_schematic_components() -> tuple[list[dict[str, Any]], list[str]]:
     return components, issues
 
 
-def _pcb_sync_gate_failures() -> list[str]:
-    from .validation import _evaluate_schematic_connectivity_gate, _evaluate_schematic_gate
+def _pcb_sync_gate_failures(*, force: bool = False) -> list[str]:
+    from .validation import _evaluate_pre_sync_gate
 
-    outcomes = [_evaluate_schematic_gate(), _evaluate_schematic_connectivity_gate()]
-    blocking = [outcome for outcome in outcomes if outcome.status != "PASS"]
-    if not blocking:
+    outcome = _evaluate_pre_sync_gate()
+    if outcome.status == "PASS" or force:
         return []
 
     lines = ["PCB sync aborted because the schematic is not ready:"]
-    for outcome in blocking:
-        lines.append(f"- {outcome.name} quality gate: {outcome.status}")
-        lines.append(f"  {outcome.summary}")
-        for detail in outcome.details[:6]:
-            lines.append(f"  {detail}")
+    lines.append(f"- {outcome.name} quality gate: {outcome.status}")
+    lines.append(f"  {outcome.summary}")
+    for detail in outcome.details[:12]:
+        lines.append(f"  {detail}")
     lines.append(
         "Re-run `schematic_quality_gate()` and `schematic_connectivity_gate()` after fixing "
-        "the schematic."
+        "the schematic, or rerun with force=True to override for debugging."
     )
     return lines
 
@@ -2569,6 +2677,8 @@ def register(mcp: FastMCP) -> None:
         allow_open_board: bool = False,
         use_net_names: bool = True,
         replace_mismatched: bool = False,
+        force: bool = False,
+        auto_place: bool = True,
     ) -> str:
         """Sync missing PCB footprints from schematic footprint assignments.
 
@@ -2587,6 +2697,8 @@ def register(mcp: FastMCP) -> None:
             allow_open_board=allow_open_board,
             use_net_names=use_net_names,
             replace_mismatched=replace_mismatched,
+            force=force,
+            auto_place=auto_place,
         )
         if _board_is_open() and not payload.allow_open_board:
             return (
@@ -2594,8 +2706,11 @@ def register(mcp: FastMCP) -> None:
                 "Close the board first, or rerun with allow_open_board=True if you want "
                 "KiCad to reload the updated file from disk."
             )
-        if blocking_lines := _pcb_sync_gate_failures():
+        force_note = ""
+        if blocking_lines := _pcb_sync_gate_failures(force=payload.force):
             return "\n".join(blocking_lines)
+        if payload.force:
+            force_note = "Pre-sync gate was overridden by force=True."
 
         components, issues = _collect_schematic_components()
         if issues:
@@ -2717,6 +2832,10 @@ def register(mcp: FastMCP) -> None:
                 lambda current: _replace_board_blocks(current, replacements, additions)
             )
 
+        auto_place_note = ""
+        if (additions or replacements) and payload.auto_place:
+            auto_place_note = _auto_place_force_directed_board_file(grid_mm=1.0, max_seconds=30.0)
+
         reload_note = (
             _reload_board_after_file_sync()
             if (additions or replacements) and payload.allow_open_board
@@ -2756,6 +2875,10 @@ def register(mcp: FastMCP) -> None:
                 )
         if net_note:
             lines.append(net_note)
+        if force_note:
+            lines.append(force_note)
+        if auto_place_note:
+            lines.append(auto_place_note)
         if reload_note:
             lines.append(reload_note)
         return "\n".join(lines)
@@ -2899,23 +3022,26 @@ def register(mcp: FastMCP) -> None:
         ic_height_mm = float(ic_entry["height_mm"])
         ordered_caps = [existing[reference] for reference in payload.cap_refs]
         pitch_mm = max(float(entry["width_mm"]) for entry in ordered_caps) + payload.grid_mm
-        cap_band_y_mm = (
-            ic_y_mm - ((ic_height_mm / 2) + payload.max_distance_mm)
-            if payload.side == "same"
-            else ic_y_mm + ((ic_height_mm / 2) + payload.max_distance_mm)
-        )
         base_x_mm = ic_x_mm - (((len(payload.cap_refs) - 1) * pitch_mm) / 2)
         occupied = _collect_occupied_boxes(existing, exclude_refs=set(payload.cap_refs))
 
         replacements: dict[str, str] = {}
+        placement_report: list[str] = []
         moved = 0
         for index, reference in enumerate(payload.cap_refs):
             entry = existing[reference]
+            rule = _decoupling_rule_for_value(str(entry["value"]), payload.max_distance_mm)
+            rule_max_distance_mm = float(cast(float | int | str, rule["max_dist_mm"]))
             width_mm = float(entry["width_mm"])
             height_mm = float(entry["height_mm"])
+            preferred_y_mm = (
+                ic_y_mm - ((ic_height_mm / 2) + rule_max_distance_mm)
+                if payload.side == "same"
+                else ic_y_mm + ((ic_height_mm / 2) + rule_max_distance_mm)
+            )
             resolved_x_mm, resolved_y_mm = _find_open_position(
                 base_x_mm + (index * pitch_mm),
-                cap_band_y_mm,
+                preferred_y_mm,
                 width_mm,
                 height_mm,
                 SyncPcbFromSchematicInput(grid_mm=payload.grid_mm),
@@ -2936,6 +3062,12 @@ def register(mcp: FastMCP) -> None:
                 }
             )
             moved += 1
+            distance_mm = math.dist((resolved_x_mm, resolved_y_mm), (ic_x_mm, ic_y_mm))
+            status_mark = "OK" if distance_mm <= rule_max_distance_mm + ic_height_mm else "WARN"
+            placement_report.append(
+                f"{reference} placed {distance_mm:.1f}mm from {payload.ic_ref} "
+                f"({str(entry['value'])}, {status_mark})"
+            )
 
         _transactional_board_write(lambda current: _replace_board_blocks(current, replacements, []))
 
@@ -2943,6 +3075,7 @@ def register(mcp: FastMCP) -> None:
             f"Placed {moved} decoupling capacitor(s) near {payload.ic_ref}.",
             f"Preferred placement band: {payload.side}.",
         ]
+        lines.extend(placement_report)
         if payload.side == "opposite":
             lines.append(
                 "Note: file-based placement keeps the current copper side; "

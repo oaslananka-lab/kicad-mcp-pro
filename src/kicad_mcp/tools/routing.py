@@ -483,7 +483,7 @@ def register(mcp: FastMCP) -> None:
         drc_report_path: str = "output/routing/freerouting.drc.json",
         ctx: Context[Any, Any, Any] | None = None,
     ) -> str:
-        """Run FreeRouting on a Specctra DSN file and stage the resulting SES session."""
+        """Run FreeRouting after placement; do not skip this post-placement routing step."""
         cfg = get_config()
         runner = FreeRoutingRunner()
         pcb_file = _get_pcb_file()

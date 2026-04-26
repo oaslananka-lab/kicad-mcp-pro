@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-04-26
+
+### Added
+
+- Added `sch_add_missing_junctions()` plus automatic T-intersection junction insertion for generated schematic wiring.
+- Added `project_full_validation_loop()` for bounded ERC/DRC/quality-gate fix iteration and `project_gate_trend()` for persisted gate history inspection.
+- Added `professional_circuit_design` and `post_placement_routing` prompts to make agent workflows deterministic from schematic capture through routing.
+- Added a grid-based schematic A* router, a lightweight PDN mesh solver, project-local gate-history persistence, and ten new YAML subcircuit blueprints.
+
+### Changed
+
+- `pcb_sync_from_schematic()` now has backward-compatible `force` and `auto_place` options, blocks unsafe syncs behind a pre-sync gate by default, and can run force-directed placement after successful sync.
+- Schematic wire writes now deduplicate duplicate segments and merge collinear runs before persisting.
+- Schematic routing now avoids symbol bodies with A*/Z-route fallback instead of blindly drawing L-routes through obstacles.
+- Placement and routing prompts now include post-placement DSN export, FreeRouting, SES import, zone refill, and DRC steps.
+- `pcb_place_decoupling_caps()` now applies value-specific proximity rules for common bypass and bulk capacitors.
+- Bumped project release version to 3.0.0 across package/runtime/registry metadata.
+
+### Fixed
+
+- Fixed missing junctions on T-intersections that could make visually connected schematic wires absent from the netlist.
+- Fixed pre-sync PCB transfer behavior so ERC/connectivity/annotation failures are blocked unless explicitly forced.
+
 ## [2.4.8] - 2026-04-26
 
 ### Changed

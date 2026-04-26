@@ -24,6 +24,7 @@ from ..models.power_integrity import (
 )
 from ..utils.impedance import copper_thickness_mm, recommended_decoupling_distance_mm
 from ..utils.layers import resolve_layer
+from ..utils.pdn_mesh import PdnLoad, PdnMesh
 from ..utils.units import _coord_nm, mm_to_mil, mm_to_nm, nm_to_mm
 
 _COPPER_RESISTIVITY_OHM_M = 1.724e-8
@@ -246,6 +247,46 @@ def register(mcp: FastMCP) -> None:
                 f"- Estimated current density: {current_density_a_per_mm2:.2f} A/mm^2",
             ]
         )
+
+    @mcp.tool()
+    def check_power_integrity(
+        net_name: str,
+        source_ref: str,
+        load_refs: list[str],
+        trace_width_mm: float,
+        load_current_a: float = 0.1,
+        trace_length_mm: float = 100.0,
+        copper_weight_oz: float = 1.0,
+        nominal_voltage_v: float = 3.3,
+    ) -> str:
+        """Run a lightweight PDN mesh voltage-drop check for a power net."""
+        loads = [
+            PdnLoad(
+                ref=reference,
+                current_a=load_current_a,
+                distance_mm=trace_length_mm * ((index + 1) / max(1, len(load_refs))),
+            )
+            for index, reference in enumerate(load_refs)
+        ]
+        result = PdnMesh().solve(
+            net_name=net_name,
+            source_ref=source_ref,
+            loads=loads,
+            trace_width_mm=trace_width_mm,
+            copper_weight_oz=copper_weight_oz,
+            nominal_voltage_v=nominal_voltage_v,
+        )
+        lines = [
+            "PDN mesh check:",
+            f"- Net: {net_name}",
+            f"- Source: {source_ref}",
+            f"- Max drop: {result.max_drop_mv:.2f} mV",
+            f"- Violations: {len(result.violations)}",
+        ]
+        lines.extend(f"- {ref}: {drop:.2f} mV" for ref, drop in result.drops_mv.items())
+        lines.extend(f"- FAIL: {item}" for item in result.violations)
+        lines.extend(f"- Recommendation: {item}" for item in result.recommendations)
+        return "\n".join(lines)
 
     @mcp.tool()
     def pdn_recommend_decoupling_caps(
