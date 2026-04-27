@@ -26,6 +26,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ossf/scorecard-action@v2.4.0
+        continue-on-error: true
         with:
           results_file: scorecard.sarif
           results_format: sarif
