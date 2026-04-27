@@ -4,7 +4,7 @@ from pathlib import Path
 
 from kicad_mcp.config import get_config
 from kicad_mcp.connection import KiCadConnectionError
-from kicad_mcp.server import _print_startup_diagnostics, main_callback
+from kicad_mcp.server import KiCadFastMCP, _print_startup_diagnostics, build_server, main_callback
 
 
 def test_print_startup_diagnostics_logs_expected_fields(
@@ -70,16 +70,26 @@ def test_main_callback_runs_startup_diagnostics_before_server_run(
     observed: dict[str, object] = {}
 
     class FakeServer:
+        def start_lazy_registration_background(self) -> None:
+            observed["lazy_started"] = True
+
         def run(self, *, transport: str, mount_path: str | None = None) -> None:
             observed["transport"] = transport
             observed["mount_path"] = mount_path
 
     monkeypatch.setattr("kicad_mcp.server.setup_logging", lambda *_args: None)
-    monkeypatch.setattr("kicad_mcp.server.build_server", lambda _profile: FakeServer())
 
-    def fake_diagnostics(cfg) -> None:
+    def fake_build_server(profile: str, *, defer_registration: bool = False) -> FakeServer:
+        observed["build_profile"] = profile
+        observed["defer_registration"] = defer_registration
+        return FakeServer()
+
+    monkeypatch.setattr("kicad_mcp.server.build_server", fake_build_server)
+
+    def fake_diagnostics(cfg, *, probe_runtime: bool = True) -> None:
         observed["profile"] = cfg.profile
         observed["project_dir"] = cfg.project_dir
+        observed["probe_runtime"] = probe_runtime
 
     monkeypatch.setattr("kicad_mcp.server._print_startup_diagnostics", fake_diagnostics)
 
@@ -95,5 +105,23 @@ def test_main_callback_runs_startup_diagnostics_before_server_run(
     )
 
     assert observed["profile"] == "full"
+    assert observed["build_profile"] == "full"
     assert str(observed["project_dir"]).endswith("project")
+    assert observed["defer_registration"] is True
+    assert observed["probe_runtime"] is False
+    assert observed["lazy_started"] is True
     assert observed["transport"] == "stdio"
+
+
+def test_deferred_build_registers_tools_on_first_discovery(sample_project: Path) -> None:
+    _ = sample_project
+    server = build_server("minimal", defer_registration=True)
+
+    assert isinstance(server, KiCadFastMCP)
+    assert server._lazy_registration_complete is False
+
+    tool_names = {tool.name for tool in server.list_tools_sync()}
+
+    assert server._lazy_registration_complete is True
+    assert "kicad_get_version" in tool_names
+    assert "export_bom" in tool_names

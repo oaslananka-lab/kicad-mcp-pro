@@ -2,6 +2,16 @@
 
 The simplest Claude Code setup uses `stdio`. For longer-lived multi-client setups, prefer streamable HTTP.
 
+KiCad MCP Pro 3.0.2 and newer defer heavy tool registration in `stdio` mode so Claude
+Code can send `initialize` immediately after spawning the server. If Claude Code reports
+`Failed to reconnect to kicad`, upgrade the package first:
+
+```bash
+pipx upgrade kicad-mcp-pro
+# or, for uv tool installs:
+uv tool upgrade kicad-mcp-pro
+```
+
 ## Recommendation
 
 - Local single-user session: `stdio`

@@ -103,6 +103,10 @@ Add the server to `claude_desktop_config.json`:
 
 ## Claude Code
 
+Use KiCad MCP Pro 3.0.2 or newer for Claude Code `stdio` setups. That release defers
+heavy tool registration until after the MCP `initialize` handshake, avoiding startup races
+on slower WSL or cold KiCad environments.
+
 Project-scoped `.mcp.json`:
 
 ```json

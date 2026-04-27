@@ -10,8 +10,8 @@ import secrets
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Iterable
+from typing import Any, Protocol, cast
 
 import anyio
 import structlog
@@ -21,7 +21,9 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Icon, ToolAnnotations
+from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.cors import CORSMiddleware
@@ -33,26 +35,7 @@ from . import __version__
 from .config import KiCadMCPConfig, get_config, reset_config
 from .connection import KiCadConnectionError, get_board
 from .discovery import ensure_studio_project_watcher, find_kicad_version
-from .prompts import workflows
-from .resources import board_state, studio_context
-from .tools import (
-    dfm,
-    emc_compliance,
-    export,
-    library,
-    manufacturing,
-    pcb,
-    power_integrity,
-    project,
-    router,
-    routing,
-    schematic,
-    signal_integrity,
-    simulation,
-    validation,
-    variants,
-    version_control,
-)
+from .tools import router
 from .tools.fixers import validate_callable_imports
 from .tools.metadata import infer_tool_annotations
 from .tools.router import EXPERIMENTAL_TOOL_NAMES, available_profiles, categories_for_profile
@@ -62,6 +45,14 @@ from .wellknown import get_wellknown_metadata
 logger = structlog.get_logger(__name__)
 app = typer.Typer(help="KiCad MCP Pro server for PCB and schematic workflows.")
 AnyFunction = Callable[..., object]
+
+
+class _LazyRegistrationServer(Protocol):
+    def start_lazy_registration_background(self) -> None:
+        """Start deferred MCP surface registration."""
+        ...
+
+
 HEAVY_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "run_drc",
@@ -356,6 +347,60 @@ class KiCadFastMCP(FastMCP):
 
     allow_experimental_tools: bool = False
     allowed_tool_names: set[str] | None = None
+    _lazy_registration: Callable[[], None] | None = None
+    _lazy_registration_complete: bool = False
+    _lazy_registration_error: BaseException | None = None
+    _lazy_registration_lock: threading.Lock
+    _lazy_registration_thread: threading.Thread | None = None
+
+    def set_lazy_registration(self, register: Callable[[], None]) -> None:
+        """Defer heavy tool/resource registration until after stdio initialize can bind."""
+        self._lazy_registration = register
+        self._lazy_registration_complete = False
+        self._lazy_registration_error = None
+        self._lazy_registration_lock = threading.Lock()
+        self._lazy_registration_thread = None
+
+    def start_lazy_registration_background(self) -> None:
+        """Begin deferred registration without blocking process startup."""
+        if self._lazy_registration is None or self._lazy_registration_complete:
+            return
+        if getattr(self, "_lazy_registration_thread", None) is not None:
+            return
+
+        thread = threading.Thread(
+            target=self.ensure_registered,
+            name="kicad-mcp-register-tools",
+            daemon=True,
+        )
+        self._lazy_registration_thread = thread
+        thread.start()
+
+    def ensure_registered(self) -> None:
+        """Materialize deferred tools, resources, and prompts exactly once."""
+        register = self._lazy_registration
+        if register is None:
+            return
+        if self._lazy_registration_complete:
+            return
+        lock = getattr(self, "_lazy_registration_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._lazy_registration_lock = lock
+        with lock:
+            if self._lazy_registration_complete:
+                return
+            if self._lazy_registration_error is not None:
+                raise self._lazy_registration_error
+            try:
+                register()
+            except BaseException as exc:
+                self._lazy_registration_error = exc
+                raise
+            self._lazy_registration_complete = True
+
+    async def _ensure_registered_async(self) -> None:
+        await anyio.to_thread.run_sync(self.ensure_registered)
 
     def tool(
         self,
@@ -406,6 +451,7 @@ class KiCadFastMCP(FastMCP):
 
     def list_tools_sync(self) -> list[mcp_types.Tool]:
         """List filtered tools without needing to drive an asyncio event loop."""
+        self.ensure_registered()
         tools = self._tool_manager.list_tools()
         rendered = [
             mcp_types.Tool(
@@ -443,8 +489,38 @@ class KiCadFastMCP(FastMCP):
 
     async def list_tools(self) -> list[mcp_types.Tool]:
         """Hide experimental tools from discovery unless explicitly enabled."""
+        await self._ensure_registered_async()
         tools = await super().list_tools()
         return self._filter_tools(tools)
+
+    async def list_resources(self) -> list[mcp_types.Resource]:
+        """Materialize resources before discovery when stdio startup was deferred."""
+        await self._ensure_registered_async()
+        return await super().list_resources()
+
+    async def list_resource_templates(self) -> list[mcp_types.ResourceTemplate]:
+        """Materialize resource templates before discovery when startup was deferred."""
+        await self._ensure_registered_async()
+        return await super().list_resource_templates()
+
+    async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
+        """Materialize resources before reading them when startup was deferred."""
+        await self._ensure_registered_async()
+        return await super().read_resource(uri)
+
+    async def list_prompts(self) -> list[mcp_types.Prompt]:
+        """Materialize prompts before discovery when stdio startup was deferred."""
+        await self._ensure_registered_async()
+        return await super().list_prompts()
+
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> mcp_types.GetPromptResult:
+        """Materialize prompts before rendering them when startup was deferred."""
+        await self._ensure_registered_async()
+        return await super().get_prompt(name, arguments)
 
     async def call_tool(  # type: ignore[override]
         self,
@@ -458,6 +534,7 @@ class KiCadFastMCP(FastMCP):
         limiter = _tool_limiter(name)
         result: object
         try:
+            await self._ensure_registered_async()
             if limiter is None:
                 result = await super().call_tool(name, arguments)
             else:
@@ -564,10 +641,76 @@ def _prometheus_metrics_payload() -> str:
     return "\n".join(lines)
 
 
-def build_server(profile: str | None = None) -> FastMCP:
+def _register_profile_components(
+    server: KiCadFastMCP,
+    enabled: set[str],
+    cfg: KiCadMCPConfig,
+) -> None:
+    """Register all profile-specific MCP surfaces on an already-created server."""
+    from .prompts import workflows
+    from .resources import board_state, studio_context
+    from .tools import (
+        dfm,
+        emc_compliance,
+        export,
+        library,
+        manufacturing,
+        pcb,
+        power_integrity,
+        project,
+        routing,
+        schematic,
+        signal_integrity,
+        simulation,
+        validation,
+        variants,
+        version_control,
+    )
+
+    validate_callable_imports()
+
+    router.register(server)
+    project.register(server)
+
+    if "pcb_read" in enabled or "pcb_write" in enabled:
+        pcb.register(server)
+    if "schematic" in enabled:
+        schematic.register(server)
+        variants.register(server)
+    if "library" in enabled:
+        library.register(server)
+    if "export" in enabled or "release_export" in enabled:
+        export.register(server, include_low_level_exports="export" in enabled)
+    if "validation" in enabled:
+        validation.register(server)
+    if "dfm" in enabled:
+        dfm.register(server)
+    if "routing" in enabled:
+        routing.register(server)
+    if "power_integrity" in enabled:
+        power_integrity.register(server)
+    if "emc" in enabled:
+        emc_compliance.register(server)
+    if "signal_integrity" in enabled:
+        signal_integrity.register(server)
+    if "simulation" in enabled:
+        simulation.register(server)
+    if "version_control" in enabled:
+        version_control.register(server)
+    if "manufacturing" in enabled:
+        manufacturing.register(server)
+
+    board_state.register(server)
+    studio_context.register(server)
+    workflows.register(server)
+
+    if cfg.studio_watch_dir is not None:
+        ensure_studio_project_watcher(cfg.studio_watch_dir)
+
+
+def build_server(profile: str | None = None, *, defer_registration: bool = False) -> FastMCP:
     """Build a FastMCP server instance for the active profile."""
     cfg = get_config()
-    validate_callable_imports()
     selected_profile = profile or cfg.profile
     enabled = set(categories_for_profile(selected_profile))
     token_verifier = _StaticTokenVerifier(cfg.auth_token) if cfg.auth_token else None
@@ -643,43 +786,13 @@ def build_server(profile: str | None = None) -> FastMCP:
                 media_type="text/plain; version=0.0.4",
             )
 
-    router.register(server)
-    project.register(server)
+    def register() -> None:
+        _register_profile_components(server, enabled, cfg)
 
-    if "pcb_read" in enabled or "pcb_write" in enabled:
-        pcb.register(server)
-    if "schematic" in enabled:
-        schematic.register(server)
-        variants.register(server)
-    if "library" in enabled:
-        library.register(server)
-    if "export" in enabled or "release_export" in enabled:
-        export.register(server, include_low_level_exports="export" in enabled)
-    if "validation" in enabled:
-        validation.register(server)
-    if "dfm" in enabled:
-        dfm.register(server)
-    if "routing" in enabled:
-        routing.register(server)
-    if "power_integrity" in enabled:
-        power_integrity.register(server)
-    if "emc" in enabled:
-        emc_compliance.register(server)
-    if "signal_integrity" in enabled:
-        signal_integrity.register(server)
-    if "simulation" in enabled:
-        simulation.register(server)
-    if "version_control" in enabled:
-        version_control.register(server)
-    if "manufacturing" in enabled:
-        manufacturing.register(server)
-
-    board_state.register(server)
-    studio_context.register(server)
-    workflows.register(server)
-
-    if cfg.studio_watch_dir is not None:
-        ensure_studio_project_watcher(cfg.studio_watch_dir)
+    if defer_registration:
+        server.set_lazy_registration(register)
+    else:
+        register()
 
     return server
 
@@ -697,21 +810,23 @@ def _ipc_status_summary() -> str:
     return "connected (PCB editor available)"
 
 
-def _print_startup_diagnostics(cfg: KiCadMCPConfig) -> None:
+def _print_startup_diagnostics(cfg: KiCadMCPConfig, *, probe_runtime: bool = True) -> None:
     """Emit a concise startup summary without writing directly to stdio transport."""
     if cfg.transport == "stdio" and cfg.auth_token:
         logger.warning(
             "stdio_auth_token_ignored",
             message="KICAD_MCP_AUTH_TOKEN has no effect when the server runs over stdio.",
         )
+    kicad_version = "deferred" if not probe_runtime else find_kicad_version(cfg.kicad_cli)
+    ipc_status = "deferred" if not probe_runtime else _ipc_status_summary()
     logger.info(
         "startup_diagnostics",
         profile=cfg.profile,
         kicad_cli=str(cfg.kicad_cli),
-        kicad_version=find_kicad_version(cfg.kicad_cli) or "unknown",
+        kicad_version=kicad_version or "unknown",
         project_dir=str(cfg.project_dir) if cfg.project_dir else None,
         gate_mode="release-export-only",
-        ipc_status=_ipc_status_summary(),
+        ipc_status=ipc_status,
     )
 
 
@@ -763,8 +878,9 @@ def main_callback(
                 "legacy_sse_disabled",
                 message="Ignoring KICAD_MCP_TRANSPORT=sse because KICAD_MCP_LEGACY_SSE is false.",
             )
-    server = build_server(cfg.profile)
-    _print_startup_diagnostics(cfg)
+    defer_registration = selected_transport == "stdio"
+    server = build_server(cfg.profile, defer_registration=defer_registration)
+    _print_startup_diagnostics(cfg, probe_runtime=not defer_registration)
     logger.info(
         "starting_kicad_mcp_pro",
         version=__version__,
@@ -773,6 +889,8 @@ def main_callback(
     )
 
     if selected_transport == "stdio":
+        if hasattr(server, "start_lazy_registration_background"):
+            cast(_LazyRegistrationServer, server).start_lazy_registration_background()
         server.run(transport="stdio")
         return
 

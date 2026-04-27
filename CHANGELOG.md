@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-04-27
+
+### Fixed
+
+- Fixed Claude Code `stdio` startup races by deferring heavy tool/resource registration
+  until after the MCP `initialize` handshake can bind.
+- Added an e2e regression test that sends `initialize` immediately after process spawn.
+
+### Changed
+
+- Bumped project release version to 3.0.2 across package/runtime/registry metadata.
+
 ## [3.0.1] - 2026-04-27
 
 ### Added

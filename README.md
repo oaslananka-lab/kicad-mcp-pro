@@ -183,7 +183,11 @@ Add a custom MCP server using `uvx` as the command and `kicad-mcp-pro` as the on
 
 ### Claude Code
 
-Launch the server with `uvx kicad-mcp-pro`, then attach it from your MCP config. The `minimal` profile is a good default when you mainly want read/export workflows, while `pcb_only` and `analysis` are good focused options for board-heavy sessions.
+Launch the server with `uvx kicad-mcp-pro`, then attach it from your MCP config. Use
+3.0.2 or newer for Claude Code `stdio` configs; startup now defers heavy tool
+registration until after the MCP `initialize` handshake. The `minimal` profile is a good
+default when you mainly want read/export workflows, while `pcb_only` and `analysis` are
+good focused options for board-heavy sessions.
 
 ### More Clients
 

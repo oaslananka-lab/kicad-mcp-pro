@@ -28,7 +28,10 @@ def test_setup_logging_smoke() -> None:
 
 def test_main_callback_runs_streamable_http(sample_project: Path, monkeypatch) -> None:
     fake_server = MagicMock()
-    monkeypatch.setattr("kicad_mcp.server.build_server", lambda profile: fake_server)
+    monkeypatch.setattr(
+        "kicad_mcp.server.build_server",
+        lambda profile, *, defer_registration=False: fake_server,
+    )
     monkeypatch.setattr("kicad_mcp.server.setup_logging", lambda *args: None)
 
     main_callback(
@@ -47,7 +50,10 @@ def test_main_callback_runs_streamable_http(sample_project: Path, monkeypatch) -
 
 def test_main_callback_runs_stdio(sample_project: Path, monkeypatch) -> None:
     fake_server = MagicMock()
-    monkeypatch.setattr("kicad_mcp.server.build_server", lambda profile: fake_server)
+    monkeypatch.setattr(
+        "kicad_mcp.server.build_server",
+        lambda profile, *, defer_registration=False: fake_server,
+    )
     monkeypatch.setattr("kicad_mcp.server.setup_logging", lambda *args: None)
 
     main_callback(
@@ -80,10 +86,13 @@ def test_main_callback_preserves_env_when_cli_options_missing(
     monkeypatch.setenv("KICAD_MCP_PROJECT_DIR", str(sample_project))
     monkeypatch.setattr(
         "kicad_mcp.server.build_server",
-        lambda profile: profiles.append(profile) or fake_server,
+        lambda profile, *, defer_registration=False: profiles.append(profile) or fake_server,
     )
     monkeypatch.setattr("kicad_mcp.server.setup_logging", lambda *args: None)
-    monkeypatch.setattr("kicad_mcp.server._print_startup_diagnostics", lambda _cfg: None)
+    monkeypatch.setattr(
+        "kicad_mcp.server._print_startup_diagnostics",
+        lambda _cfg, *, probe_runtime=True: None,
+    )
 
     main_callback(
         transport=None,
@@ -117,10 +126,13 @@ def test_main_callback_explicit_cli_options_override_env(
     monkeypatch.setenv("KICAD_MCP_ENABLE_EXPERIMENTAL_TOOLS", "true")
     monkeypatch.setattr(
         "kicad_mcp.server.build_server",
-        lambda profile: profiles.append(profile) or fake_server,
+        lambda profile, *, defer_registration=False: profiles.append(profile) or fake_server,
     )
     monkeypatch.setattr("kicad_mcp.server.setup_logging", lambda *args: None)
-    monkeypatch.setattr("kicad_mcp.server._print_startup_diagnostics", lambda _cfg: None)
+    monkeypatch.setattr(
+        "kicad_mcp.server._print_startup_diagnostics",
+        lambda _cfg, *, probe_runtime=True: None,
+    )
 
     main_callback(
         transport="stdio",
