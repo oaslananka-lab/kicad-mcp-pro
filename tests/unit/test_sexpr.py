@@ -165,9 +165,7 @@ def test_schematic_classification_and_grid_helpers_cover_edge_cases() -> None:
     assert _classify_symbol("U5", "", "Logic:74HC00") == "ic"
     assert _classify_symbol("Y1", "", "") == "misc"
 
-    occupied = _estimate_occupied_cells(
-        [{"x": 50.8, "y": 50.8}, {"x": None, "y": 100.0}]
-    )
+    occupied = _estimate_occupied_cells([{"x": 50.8, "y": 50.8}, {"x": None, "y": 100.0}])
     assert (0, 0) in occupied
     assert _sheet_usable_cols("UNKNOWN") >= 1
     assert _sheet_usable_rows("A4") >= 1
@@ -248,9 +246,9 @@ def test_schematic_file_parsers_and_wire_normalization() -> None:
         "\t)\n"
         '\t(label "OUT" (at 60.96 50.8 0))\n'
         "\t(bus (pts (xy 0 0) (xy 10 0)))\n"
-        "\t(wire (pts (xy 0 0) (xy 20 0)) (uuid \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"))\n"
-        "\t(wire (pts (xy 0 0) (xy 20 0)) (uuid \"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\"))\n"
-        "\t(wire (pts (xy 10 -5) (xy 10 0)) (uuid \"cccccccc-cccc-cccc-cccc-cccccccccccc\"))\n"
+        '\t(wire (pts (xy 0 0) (xy 20 0)) (uuid "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))\n'
+        '\t(wire (pts (xy 0 0) (xy 20 0)) (uuid "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))\n'
+        '\t(wire (pts (xy 10 -5) (xy 10 0)) (uuid "cccccccc-cccc-cccc-cccc-cccccccccccc"))\n'
         "\t(sheet_instances)\n"
         ")"
     )
@@ -300,51 +298,66 @@ def test_schematic_routing_endpoint_helpers_cover_fallbacks() -> None:
         None,
         "pin_number",
     )
-    assert _resolve_net_endpoint(
-        {"reference": "U1", "pin": "VCC"},
-        "N1",
-        symbol_points,
-        aliases,
-        centers,
-        powers,
-        labels,
-    )[2] == "pin_alias"
-    assert _resolve_net_endpoint(
-        {"reference": "U9"},
-        "N1",
-        symbol_points,
-        aliases,
-        centers,
-        powers,
-        labels,
-    )[2] == "missing_reference"
-    assert _resolve_net_endpoint(
-        {"power": "GND"},
-        "GND",
-        symbol_points,
-        aliases,
-        centers,
-        powers,
-        labels,
-    )[2] == "power"
-    assert _resolve_net_endpoint(
-        {"label": "OUT"},
-        "OUT",
-        symbol_points,
-        aliases,
-        centers,
-        powers,
-        labels,
-    )[2] == "label"
-    assert _resolve_net_endpoint(
-        {},
-        "+3V3",
-        symbol_points,
-        aliases,
-        centers,
-        powers,
-        labels,
-    )[2] == "missing_power"
+    assert (
+        _resolve_net_endpoint(
+            {"reference": "U1", "pin": "VCC"},
+            "N1",
+            symbol_points,
+            aliases,
+            centers,
+            powers,
+            labels,
+        )[2]
+        == "pin_alias"
+    )
+    assert (
+        _resolve_net_endpoint(
+            {"reference": "U9"},
+            "N1",
+            symbol_points,
+            aliases,
+            centers,
+            powers,
+            labels,
+        )[2]
+        == "missing_reference"
+    )
+    assert (
+        _resolve_net_endpoint(
+            {"power": "GND"},
+            "GND",
+            symbol_points,
+            aliases,
+            centers,
+            powers,
+            labels,
+        )[2]
+        == "power"
+    )
+    assert (
+        _resolve_net_endpoint(
+            {"label": "OUT"},
+            "OUT",
+            symbol_points,
+            aliases,
+            centers,
+            powers,
+            labels,
+        )[2]
+        == "label"
+    )
+    assert (
+        _resolve_net_endpoint(
+            {},
+            "+3V3",
+            symbol_points,
+            aliases,
+            centers,
+            powers,
+            labels,
+        )[2]
+        == "missing_power"
+    )
     assert _endpoint_specs_for_routing({"name": "OUT", "endpoints": []}, powers, labels) == [
         {"label": "OUT"}
     ]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,17 @@ from .metadata import headless_compatible
 from .variants import variant_apply_to_kicad_cli_args
 
 DEFAULT_PCB_PDF_LAYERS = ["F.Cu", "Edge.Cuts"]
+_CLI_RETRY_ATTEMPTS = 3
+_CLI_RETRY_BASE_DELAY_SEC = 0.1
+_TRANSIENT_CLI_PATTERNS = (
+    "timeout",
+    "timed out",
+    "connection refused",
+    "resource busy",
+    "temporarily unavailable",
+    "ipc",
+    "socket",
+)
 
 
 def _sanitize_cli_text(text: str) -> str:
@@ -39,21 +51,44 @@ def _run_cli(*args: str, timeout: float | None = None) -> tuple[int, str, str]:
             "kicad-cli is not available. Set KICAD_MCP_KICAD_CLI to a valid executable."
         )
 
-    try:
-        result = subprocess.run(
-            [str(cfg.kicad_cli), *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout or cfg.cli_timeout,
-            check=False,
-        )
-    except OSError as exc:
-        return 1, "", _sanitize_cli_text(str(exc))
-    return (
-        result.returncode,
-        _sanitize_cli_text(result.stdout),
-        _sanitize_cli_text(result.stderr),
-    )
+    last_result = (1, "", "The kicad-cli command did not run.")
+    for attempt in range(_CLI_RETRY_ATTEMPTS):
+        try:
+            result = subprocess.run(
+                [str(cfg.kicad_cli), *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout or cfg.cli_timeout,
+                check=False,
+            )
+            last_result = (
+                result.returncode,
+                _sanitize_cli_text(result.stdout),
+                _sanitize_cli_text(result.stderr),
+            )
+        except subprocess.TimeoutExpired as exc:
+            last_result = (
+                124,
+                _sanitize_cli_text(str(exc.stdout or "")),
+                "The kicad-cli command timed out.",
+            )
+        except OSError as exc:
+            last_result = (1, "", _sanitize_cli_text(str(exc)))
+
+        code, _stdout, stderr = last_result
+        if code == 0:
+            return last_result
+        if attempt == _CLI_RETRY_ATTEMPTS - 1:
+            return last_result
+        if not _is_transient_cli_failure(stderr):
+            return last_result
+        time.sleep(_CLI_RETRY_BASE_DELAY_SEC * (2**attempt))
+    return last_result
+
+
+def _is_transient_cli_failure(stderr: str) -> bool:
+    lowered = stderr.casefold()
+    return any(pattern in lowered for pattern in _TRANSIENT_CLI_PATTERNS)
 
 
 def _run_cli_variants(variants: list[list[str]]) -> tuple[int, str, str]:
@@ -138,10 +173,12 @@ def _with_low_level_export_notice(message: str) -> str:
     return f"{LOW_LEVEL_EXPORT_NOTICE}\n\n{message}"
 
 
-def _active_variant_args() -> list[str]:
+def _active_variant_args(variant_name: str | None = None) -> list[str]:
     try:
-        return variant_apply_to_kicad_cli_args()
+        return variant_apply_to_kicad_cli_args(variant_name)
     except ValueError:
+        if variant_name:
+            raise
         return []
 
 
@@ -162,7 +199,11 @@ async def _report_progress(
 def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
     """Register export tools."""
 
-    def _export_gerber(output_subdir: str = "gerber", layers: list[str] | None = None) -> str:
+    def _export_gerber(
+        output_subdir: str = "gerber",
+        layers: list[str] | None = None,
+        variant_name: str | None = None,
+    ) -> str:
         payload = ExportGerberInput(output_subdir=output_subdir, layers=layers or [])
         pcb_file = _get_pcb_file()
         try:
@@ -174,7 +215,7 @@ def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
         layer_args = []
         if payload.layers:
             layer_args = ["--layers", ",".join(payload.layers)]
-        variant_args = _active_variant_args()
+        variant_args = _active_variant_args(variant_name)
 
         gerber_commands = ["gerbers", "gerber"]
         if caps.gerber_command not in gerber_commands:
@@ -214,18 +255,25 @@ def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
         return _format_file_list(files, f"Gerber export completed in {out_dir}:")
 
     @headless_compatible
-    def export_gerber(output_subdir: str = "gerber", layers: list[str] | None = None) -> str:
+    async def export_gerber(
+        output_subdir: str = "gerber",
+        layers: list[str] | None = None,
+        ctx: Context[Any, Any, Any] | None = None,
+    ) -> str:
         """Export Gerber manufacturing files."""
-        return _with_low_level_export_notice(_export_gerber(output_subdir, layers))
+        await _report_progress(ctx, 5, 100, "Starting Gerber export...")
+        result = _with_low_level_export_notice(_export_gerber(output_subdir, layers))
+        await _report_progress(ctx, 100, 100, "Gerber export complete.")
+        return result
 
-    def _export_drill(output_subdir: str = "gerber") -> str:
+    def _export_drill(output_subdir: str = "gerber", variant_name: str | None = None) -> str:
         pcb_file = _get_pcb_file()
         try:
             out_dir = _ensure_output_dir(output_subdir)
         except ValueError as exc:
             return f"Invalid output path: {exc}"
         caps = get_cli_capabilities(get_config().kicad_cli)
-        variant_args = _active_variant_args()
+        variant_args = _active_variant_args(variant_name)
         code, _, stderr = _run_cli_variants(
             [
                 [
@@ -259,13 +307,13 @@ def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
         """Export drill files."""
         return _with_low_level_export_notice(_export_drill(output_subdir))
 
-    def _export_bom(format: str = "csv") -> str:
+    def _export_bom(format: str = "csv", variant_name: str | None = None) -> str:
         payload = ExportBOMInput(format=format)
         sch_file = _get_sch_file()
         out_dir = _ensure_output_dir()
         suffix = "csv" if payload.format == "csv" else "xml"
         out_file = out_dir / f"bom.{suffix}"
-        variant_args = _active_variant_args()
+        variant_args = _active_variant_args(variant_name)
         code, _, stderr = _run_cli_variants(
             [
                 [
@@ -562,12 +610,12 @@ def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
         """Render the board to a PNG image."""
         return _with_low_level_export_notice(_export_3d_render(output_file, side, zoom))
 
-    def _export_pick_and_place(format: str = "csv") -> str:
+    def _export_pick_and_place(format: str = "csv", variant_name: str | None = None) -> str:
         pcb_file = _get_pcb_file()
         out_dir = _ensure_output_dir("assembly")
         out_file = out_dir / f"pick_and_place.{format}"
         caps = get_cli_capabilities(get_config().kicad_cli)
-        variant_args = _active_variant_args()
+        variant_args = _active_variant_args(variant_name)
         code, _, stderr = _run_cli_variants(
             [
                 [
@@ -605,14 +653,14 @@ def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
         """Export assembly position data."""
         return _with_low_level_export_notice(_export_pick_and_place(format))
 
-    def _export_ipc2581() -> str:
+    def _export_ipc2581(variant_name: str | None = None) -> str:
         pcb_file = _get_pcb_file()
         caps = get_cli_capabilities(get_config().kicad_cli)
         if not caps.supports_ipc2581:
             return "IPC-2581 export is not supported by the detected KiCad CLI."
 
         out_file = _ensure_output_dir("manufacturing") / "board.xml"
-        variant_args = _active_variant_args()
+        variant_args = _active_variant_args(variant_name)
         code, _, stderr = _run_cli_variants(
             [
                 [
@@ -743,11 +791,13 @@ def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
 
     @headless_compatible
     async def export_manufacturing_package(
+        variant: str = "",
         ctx: Context[Any, Any, Any] | None = None,
     ) -> str:
         """Generate the standard set of manufacturing exports."""
         from .validation import _evaluate_project_gate, _render_project_gate_report
 
+        variant_name = variant.strip() or None
         await _report_progress(ctx, 5, 100, "Running full project quality gate...")
         outcomes = _evaluate_project_gate()
         blocking = [outcome for outcome in outcomes if outcome.status != "PASS"]
@@ -762,23 +812,23 @@ def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
 
         await _report_progress(ctx, 25, 100, "Exporting Gerbers...")
         results = [
-            _export_gerber(),
+            _export_gerber(variant_name=variant_name),
         ]
         await _report_progress(ctx, 45, 100, "Exporting drill files...")
-        results.extend([_export_drill()])
+        results.extend([_export_drill(variant_name=variant_name)])
         await _report_progress(ctx, 65, 100, "Exporting BOM...")
         results.extend(
             [
-            _export_bom(),
+                _export_bom(variant_name=variant_name),
             ]
         )
         await _report_progress(ctx, 85, 100, "Exporting pick-and-place data...")
         results.extend(
             [
-            _export_pick_and_place(),
+                _export_pick_and_place(variant_name=variant_name),
             ]
         )
-        ipc_result = _export_ipc2581()
+        ipc_result = _export_ipc2581(variant_name=variant_name)
         if not ipc_result.startswith("IPC-2581 export is not supported"):
             results.append(ipc_result)
         await _report_progress(ctx, 100, 100, "Manufacturing package complete.")

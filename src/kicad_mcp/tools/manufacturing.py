@@ -188,32 +188,48 @@ def register(mcp: FastMCP) -> None:
         # Build KiKit command
         if layout_lower == "grid":
             cmd = [
-                "kikit", "panelize",
-                "--layout", f"grid; rows: {rows}; cols: {cols}; space: {spacing_mm}mm",
-                "--tabs", "fixed; width: 3mm; count: 1",
-                "--cuts", "mousebites; drill: 0.5mm; spacing: 0.8mm",
-                "--framing", f"railstb; width: {frame_width_mm}mm",
-                "--post", "millRoundedCorner",
+                "kikit",
+                "panelize",
+                "--layout",
+                f"grid; rows: {rows}; cols: {cols}; space: {spacing_mm}mm",
+                "--tabs",
+                "fixed; width: 3mm; count: 1",
+                "--cuts",
+                "mousebites; drill: 0.5mm; spacing: 0.8mm",
+                "--framing",
+                f"railstb; width: {frame_width_mm}mm",
+                "--post",
+                "millRoundedCorner",
                 str(cfg.pcb_file),
                 str(panel_file),
             ]
         elif layout_lower == "mousebites":
             cmd = [
-                "kikit", "panelize",
-                "--layout", f"grid; rows: {rows}; cols: {cols}; space: {spacing_mm}mm",
-                "--tabs", "fixed; width: 3mm; count: 2",
-                "--cuts", "mousebites; drill: 0.5mm; spacing: 0.8mm; offset: 0.25mm",
-                "--framing", f"railstb; width: {frame_width_mm}mm",
+                "kikit",
+                "panelize",
+                "--layout",
+                f"grid; rows: {rows}; cols: {cols}; space: {spacing_mm}mm",
+                "--tabs",
+                "fixed; width: 3mm; count: 2",
+                "--cuts",
+                "mousebites; drill: 0.5mm; spacing: 0.8mm; offset: 0.25mm",
+                "--framing",
+                f"railstb; width: {frame_width_mm}mm",
                 str(cfg.pcb_file),
                 str(panel_file),
             ]
         else:  # vcut
             cmd = [
-                "kikit", "panelize",
-                "--layout", f"grid; rows: {rows}; cols: {cols}; space: 0mm",
-                "--tabs", "full",
-                "--cuts", "vcuts; clearance: 0.5mm",
-                "--framing", f"railstb; width: {frame_width_mm}mm",
+                "kikit",
+                "panelize",
+                "--layout",
+                f"grid; rows: {rows}; cols: {cols}; space: 0mm",
+                "--tabs",
+                "full",
+                "--cuts",
+                "vcuts; clearance: 0.5mm",
+                "--framing",
+                f"railstb; width: {frame_width_mm}mm",
                 str(cfg.pcb_file),
                 str(panel_file),
             ]
@@ -459,9 +475,7 @@ def register(mcp: FastMCP) -> None:
 
         # Write manifest.json
         manifest_json_path = out_dir / "manifest.json"
-        manifest_json_path.write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
-        )
+        manifest_json_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
         # Write MANIFEST.txt (human-readable)
         txt_lines = [
@@ -569,9 +583,7 @@ def register(mcp: FastMCP) -> None:
                 row[rot_col] = f"{corrected:.2f}"
                 corrected_count += 1
                 ref = row.get("Ref", "?")
-                preview_lines.append(
-                    f"{ref} | {pkg} | {orig:.2f}° | +{offset}° | {corrected:.2f}°"
-                )
+                preview_lines.append(f"{ref} | {pkg} | {orig:.2f}° | +{offset}° | {corrected:.2f}°")
 
         if dry_run:
             if corrected_count == 0:

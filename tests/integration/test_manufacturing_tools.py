@@ -111,9 +111,7 @@ async def test_manufacturing_test_plan_manifest_and_cpl_rotation(
 
     cpl = sample_project / "output" / "demo_cpl.csv"
     cpl.write_text(
-        "Ref,Val,Package,PosX,PosY,Rot,Side\n"
-        "D1,LED,SOT-23-3,1,2,90,F\n"
-        "R1,10k,R_0805,3,4,0,F\n",
+        "Ref,Val,Package,PosX,PosY,Rot,Side\nD1,LED,SOT-23-3,1,2,90,F\nR1,10k,R_0805,3,4,0,F\n",
         encoding="utf-8",
     )
     dry_run = await call_tool_text(

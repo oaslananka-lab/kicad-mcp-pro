@@ -69,9 +69,7 @@ def _zone_net_name(zone: _ZoneLike) -> str:
 
 def _is_ground_like_net(net_name: str) -> bool:
     normalized = net_name.strip().upper()
-    return normalized in {"GND", "AGND", "DGND", "PGND", "GROUND"} or normalized.startswith(
-        "GND_"
-    )
+    return normalized in {"GND", "AGND", "DGND", "PGND", "GROUND"} or normalized.startswith("GND_")
 
 
 def _footprint_reference(footprint: _FootprintLike) -> str:
@@ -167,11 +165,7 @@ def _high_speed_nets() -> list[str]:
     intent_nets = _intent_critical_nets()
     if intent_nets:
         return [name for name in intent_nets if name in names] or intent_nets
-    selected = [
-        name
-        for name in names
-        if any(token in name.upper() for token in priority)
-    ]
+    selected = [name for name in names if any(token in name.upper() for token in priority)]
     return selected or names
 
 
@@ -213,11 +207,7 @@ def _emc_check_ground_plane_voids_text(max_void_area_mm2: float) -> tuple[str, s
     if not zones:
         return "FAIL", "No GND copper pours or planes were found."
     layers = sorted(
-        {
-            BoardLayer.Name(layer)
-            for zone in zones
-            for layer in getattr(zone, "layers", [])
-        }
+        {BoardLayer.Name(layer) for zone in zones for layer in getattr(zone, "layers", [])}
     )
     verdict = "PASS" if len(layers) >= 2 else "WARN"
     return (
@@ -244,8 +234,7 @@ def _emc_check_single_return_path_text(
         return "FAIL", f"No routed tracks were found for signal net '{signal_net}'."
     plane_layer = resolve_layer(reference_plane_layer)
     plane_exists = any(
-        _is_ground_like_net(_zone_net_name(zone))
-        and plane_layer in getattr(zone, "layers", [])
+        _is_ground_like_net(_zone_net_name(zone)) and plane_layer in getattr(zone, "layers", [])
         for zone in _board_zones()
     )
     if not plane_exists:
@@ -282,8 +271,7 @@ def _emc_check_return_path_text(
         geometry = ", ".join(f"net={name}, radius={search_radius_mm:.2f}mm" for name in failures)
         return (
             "WARN",
-            f"Violations: {len(failures)}. Geometry: {geometry}. "
-            + " ".join(details),
+            f"Violations: {len(failures)}. Geometry: {geometry}. " + " ".join(details),
         )
     return (
         "PASS",
@@ -356,9 +344,11 @@ def _emc_check_diff_pair_text(net_p: str, net_n: str, max_skew_ps: float) -> tup
     skew_ps = skew_mm * propagation_delay_ps_per_mm(3.0)
     width_delta_pct = 0.0
     if width_p and width_n:
-        width_delta_pct = abs((sum(width_p) / len(width_p)) - (sum(width_n) / len(width_n))) / (
-            sum(width_p + width_n) / len(width_p + width_n)
-        ) * 100.0
+        width_delta_pct = (
+            abs((sum(width_p) / len(width_p)) - (sum(width_n) / len(width_n)))
+            / (sum(width_p + width_n) / len(width_p + width_n))
+            * 100.0
+        )
     verdict = "PASS" if skew_ps <= max_skew_ps and width_delta_pct <= 10.0 else "WARN"
     return (
         verdict,
@@ -370,9 +360,7 @@ def _emc_check_diff_pair_text(net_p: str, net_n: str, max_skew_ps: float) -> tup
 
 
 def _emc_check_high_speed_rules_text(net_class: str, max_stub_length_mm: float) -> tuple[str, str]:
-    matching = [
-        name for name in _high_speed_nets() if net_class.upper() in name.upper()
-    ]
+    matching = [name for name in _high_speed_nets() if net_class.upper() in name.upper()]
     if not matching:
         return "WARN", f"No routed nets matched the high-speed class token '{net_class}'."
     worst_stub = 0.0
@@ -421,9 +409,7 @@ def _emc_check_ground_via_density_text() -> tuple[str, str]:
 
 def _emc_check_reference_plane_text() -> tuple[str, str]:
     gnd_layers = {
-        BoardLayer.Name(layer)
-        for zone in _gnd_zones()
-        for layer in getattr(zone, "layers", [])
+        BoardLayer.Name(layer) for zone in _gnd_zones() for layer in getattr(zone, "layers", [])
     }
     if not gnd_layers:
         return "FAIL", "No dedicated GND plane or pour layers were detected."

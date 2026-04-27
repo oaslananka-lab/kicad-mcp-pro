@@ -41,9 +41,7 @@ def _profile_resource_name(manufacturer: str, tier: str) -> str:
 def _available_profile_names() -> list[str]:
     profile_root = resources.files("kicad_mcp.dfm_profiles")
     return sorted(
-        entry.name[:-5]
-        for entry in profile_root.iterdir()
-        if entry.name.endswith(".json")
+        entry.name[:-5] for entry in profile_root.iterdir() if entry.name.endswith(".json")
     )
 
 
@@ -105,9 +103,7 @@ def _board_metrics() -> dict[str, float | int | None]:
 
     board_metrics = cast(_BoardMetricsLike, board)
     layers = [
-        layer
-        for layer in board_metrics.get_enabled_layers()
-        if "_Cu" in BoardLayer.Name(layer)
+        layer for layer in board_metrics.get_enabled_layers() if "_Cu" in BoardLayer.Name(layer)
     ]
     tracks = board_metrics.get_tracks()
     vias = board_metrics.get_vias()
@@ -224,11 +220,7 @@ def _dfm_check_lines(
     courtyard = (
         cast(list[dict[str, Any]], report.get("items_not_passing_courtyard", [])) if report else []
     )
-    silk = [
-        entry
-        for entry in violations
-        if "silk" in str(entry.get("description", "")).lower()
-    ]
+    silk = [entry for entry in violations if "silk" in str(entry.get("description", "")).lower()]
 
     lines = [
         heading or "DFM profile check:",

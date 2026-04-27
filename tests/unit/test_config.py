@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
-from kicad_mcp.config import KiCadMCPConfig
+from kicad_mcp.config import KiCadMCPConfig, get_config
+from kicad_mcp.discovery import poll_studio_watch_dir
 
 
 def test_config_reads_env_vars(sample_project: Path, monkeypatch) -> None:
@@ -43,3 +45,48 @@ def test_cors_origins_require_explicit_http_urls(sample_project: Path) -> None:
 
     with pytest.raises(ValueError, match="must be fully qualified"):
         KiCadMCPConfig(cors_origins="vscode-webview://panel")
+
+
+def test_watch_dir_does_not_override_explicit_project(tmp_path: Path, monkeypatch) -> None:
+    explicit_project = tmp_path / "explicit"
+    explicit_project.mkdir()
+    (explicit_project / "explicit.kicad_pro").write_text("{}", encoding="utf-8")
+    (explicit_project / "explicit.kicad_pcb").write_text("(kicad_pcb)\n", encoding="utf-8")
+    (explicit_project / "explicit.kicad_sch").write_text("(kicad_sch)\n", encoding="utf-8")
+
+    watch_project = tmp_path / "watch" / "demo"
+    watch_project.mkdir(parents=True)
+    (watch_project / "demo.kicad_pro").write_text("{}", encoding="utf-8")
+    (watch_project / "demo.kicad_pcb").write_text("(kicad_pcb)\n", encoding="utf-8")
+    (watch_project / "demo.kicad_sch").write_text("(kicad_sch)\n", encoding="utf-8")
+
+    monkeypatch.setenv("KICAD_MCP_PROJECT_DIR", str(explicit_project))
+    cfg = get_config()
+
+    poll_studio_watch_dir(tmp_path / "watch", previous={})
+
+    assert cfg.project_dir == explicit_project.resolve()
+
+
+def test_watch_dir_auto_selection_does_not_create_explicit_lock(tmp_path: Path) -> None:
+    watch_root = tmp_path / "watch"
+    first_project = watch_root / "first"
+    second_project = watch_root / "second"
+    for project in (first_project, second_project):
+        project.mkdir(parents=True)
+        (project / f"{project.name}.kicad_pro").write_text("{}", encoding="utf-8")
+        (project / f"{project.name}.kicad_pcb").write_text("(kicad_pcb)\n", encoding="utf-8")
+        (project / f"{project.name}.kicad_sch").write_text("(kicad_sch)\n", encoding="utf-8")
+
+    os.utime(first_project / "first.kicad_pro", (1_000_000, 1_000_000))
+    os.utime(second_project / "second.kicad_pro", (999_000, 999_000))
+
+    cfg = get_config()
+    previous = poll_studio_watch_dir(watch_root, previous={})
+    assert cfg.project_dir == first_project.resolve()
+    assert cfg.project_dir_is_explicit is False
+
+    os.utime(second_project / "second.kicad_pro", (1_001_000, 1_001_000))
+    poll_studio_watch_dir(watch_root, previous=previous)
+    assert cfg.project_dir == second_project.resolve()
+    assert cfg.project_dir_is_explicit is False

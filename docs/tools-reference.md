@@ -40,6 +40,7 @@ These tools persist the engineering assumptions that intent-aware placement chec
 - `project_get_design_spec()`
 - `project_infer_design_spec()`
 - `project_validate_design_spec()`
+- `project_generate_design_prompt()`
 - `project_get_next_action()`
 
 Current intent fields:
@@ -73,6 +74,16 @@ The default agent layout loop is:
 - `pcb_place_decoupling_caps()` to apply common 100n/1u/10u proximity rules.
 - `route_export_dsn()`, `route_autoroute_freerouting()`, and `route_import_ses()` for autorouting.
 - `check_power_integrity()` for lightweight PDN mesh voltage-drop screening.
+
+`check_power_integrity()` can also estimate simple AC PDN impedance when frequency
+points and decoupling capacitor values are supplied. The result reports impedance
+violations separately from DC voltage-drop violations.
+
+## Error Responses
+
+Tool execution failures are returned as MCP tool errors with `isError: true` and
+structured content containing `error_code`, `message`, and `hint`. The text content
+still includes a readable summary for clients that do not consume structured output.
 
 ## Critic Resources
 

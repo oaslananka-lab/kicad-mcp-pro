@@ -48,10 +48,15 @@ def _tokenize(content: str) -> list[str]:
                 raise ValueError("Unterminated string literal in .kicad_dru content.")
             continue
         cursor = index
-        while cursor < len(content) and not content[cursor].isspace() and content[cursor] not in {
-            "(",
-            ")",
-        }:
+        while (
+            cursor < len(content)
+            and not content[cursor].isspace()
+            and content[cursor]
+            not in {
+                "(",
+                ")",
+            }
+        ):
             cursor += 1
         tokens.append(content[index:cursor])
         index = cursor
@@ -124,11 +129,7 @@ def dump_dru(node: SExprNode) -> str:
 
 def iter_rule_nodes(root: SExprNode) -> list[SExprNode]:
     """Return every ``(rule ...)`` node from the supplied ``(rules ...)`` tree."""
-    return [
-        child
-        for child in root[1:]
-        if isinstance(child, list) and child and child[0] == "rule"
-    ]
+    return [child for child in root[1:] if isinstance(child, list) and child and child[0] == "rule"]
 
 
 def rule_name(rule: SExprNode) -> str:

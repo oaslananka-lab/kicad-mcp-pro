@@ -30,9 +30,7 @@ class PowerRailSpec(BaseModel):
 
     name: str = Field(min_length=1, max_length=64, description="Net name, e.g. '+3V3'.")
     voltage_v: float = Field(gt=0.0, le=60.0, description="Nominal output voltage in Volts.")
-    current_max_a: float = Field(
-        gt=0.0, le=200.0, description="Peak current draw in Amperes."
-    )
+    current_max_a: float = Field(gt=0.0, le=200.0, description="Peak current draw in Amperes.")
     tolerance_pct: float = Field(
         default=5.0, ge=0.0, le=20.0, description="Allowed voltage deviation in percent."
     )
@@ -182,9 +180,7 @@ class MechanicalConstraint(BaseModel):
         default=None, gt=0.0, description="Override board height in mm."
     )
     mount_holes: list[MountHoleSpec] = Field(default_factory=list, max_length=20)
-    connector_placement: list[ConnectorEdgePlacement] = Field(
-        default_factory=list, max_length=50
-    )
+    connector_placement: list[ConnectorEdgePlacement] = Field(default_factory=list, max_length=50)
     max_height_mm: float | None = Field(
         default=None,
         gt=0.0,

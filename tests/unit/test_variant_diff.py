@@ -76,16 +76,17 @@ async def test_variant_tools_cover_error_paths_and_json_export(sample_project) -
     await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
     await call_tool_text(server, "variant_create", {"name": "lite"})
 
-    with pytest.raises(Exception, match="must not be empty"):
-        await call_tool_text(server, "variant_create", {"name": "   "})
-    with pytest.raises(Exception, match="already exists"):
-        await call_tool_text(server, "variant_create", {"name": "lite"})
-    with pytest.raises(Exception, match="was not found in the active schematic"):
-        await call_tool_text(
-            server,
-            "variant_set_component_override",
-            {"variant": "lite", "reference": "U99", "enabled": False},
-        )
+    empty_error = await call_tool_text(server, "variant_create", {"name": "   "})
+    duplicate_error = await call_tool_text(server, "variant_create", {"name": "lite"})
+    missing_ref_error = await call_tool_text(
+        server,
+        "variant_set_component_override",
+        {"variant": "lite", "reference": "U99", "enabled": False},
+    )
+
+    assert "must not be empty" in empty_error
+    assert "already exists" in duplicate_error
+    assert "was not found in the active schematic" in missing_ref_error
 
     await call_tool_text(
         server,
@@ -118,5 +119,9 @@ async def test_variant_tools_cover_error_paths_and_json_export(sample_project) -
     )
     assert exported_payload[0]["footprint"] == "Resistor_SMD:R_0603"
 
-    with pytest.raises(Exception, match="Only csv and json"):
-        await call_tool_text(server, "variant_export_bom", {"variant": "lite", "format": "xlsx"})
+    format_error = await call_tool_text(
+        server,
+        "variant_export_bom",
+        {"variant": "lite", "format": "xlsx"},
+    )
+    assert "Only csv and json" in format_error

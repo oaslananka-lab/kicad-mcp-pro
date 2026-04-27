@@ -534,7 +534,7 @@ async def test_validate_footprints_vs_schematic_uses_file_fallback(
             '\t\t(property "Reference" "R1" (at 10 12 0) (effects (font (size 1.27 1.27))))\n'
             '\t\t(property "Value" "10k" (at 10 8 0) (effects (font (size 1.27 1.27))))\n'
             '\t\t(property "Footprint" "Resistor_SMD:R_0805" '
-            '(at 10 6 0) (effects (font (size 1.27 1.27))))\n'
+            "(at 10 6 0) (effects (font (size 1.27 1.27))))\n"
             "\t)\n"
             "\t(sheet_instances\n"
             '\t\t(path "/" (page "1"))\n'
@@ -547,7 +547,7 @@ async def test_validate_footprints_vs_schematic_uses_file_fallback(
     (sample_project / "demo.kicad_pcb").write_text(
         (
             "(kicad_pcb\n"
-            '\t(version 20250216)\n'
+            "\t(version 20250216)\n"
             '\t(generator "pytest")\n'
             '\t(footprint "Resistor_SMD:R_0805"\n'
             '\t\t(layer "F.Cu")\n'
@@ -579,24 +579,24 @@ async def test_pcb_placement_quality_gate_detects_overlap(sample_project) -> Non
     (sample_project / "demo.kicad_pcb").write_text(
         (
             "(kicad_pcb\n"
-            '\t(version 20250216)\n'
+            "\t(version 20250216)\n"
             '\t(generator "pytest")\n'
-            '\t(gr_rect (start 0 0) (end 20 20) (stroke (width 0.05) (type solid)) '
+            "\t(gr_rect (start 0 0) (end 20 20) (stroke (width 0.05) (type solid)) "
             '(fill no) (layer "Edge.Cuts"))\n'
             '\t(footprint "Resistor_SMD:R_0805"\n'
             '\t\t(layer "F.Cu")\n'
-            '\t\t(at 5 5 0)\n'
+            "\t\t(at 5 5 0)\n"
             '\t\t(property "Reference" "R1" (at 0 0 0) (layer "F.SilkS"))\n'
             '\t\t(property "Value" "10k" (at 0 1 0) (layer "F.Fab"))\n'
-            '\t\t(fp_rect (start -2 -1) (end 2 1) (stroke (width 0.05) (type solid)) '
+            "\t\t(fp_rect (start -2 -1) (end 2 1) (stroke (width 0.05) (type solid)) "
             '(fill no) (layer "F.CrtYd"))\n'
             "\t)\n"
             '\t(footprint "Resistor_SMD:R_0805"\n'
             '\t\t(layer "F.Cu")\n'
-            '\t\t(at 5.5 5 0)\n'
+            "\t\t(at 5.5 5 0)\n"
             '\t\t(property "Reference" "R2" (at 0 0 0) (layer "F.SilkS"))\n'
             '\t\t(property "Value" "10k" (at 0 1 0) (layer "F.Fab"))\n'
-            '\t\t(fp_rect (start -2 -1) (end 2 1) (stroke (width 0.05) (type solid)) '
+            "\t\t(fp_rect (start -2 -1) (end 2 1) (stroke (width 0.05) (type solid)) "
             '(fill no) (layer "F.CrtYd"))\n'
             "\t)\n"
             ")\n"

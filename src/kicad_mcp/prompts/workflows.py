@@ -6,6 +6,53 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 
+def render_professional_circuit_design_prompt(
+    *,
+    circuit_description: str = "",
+    board_size_mm: str = "100x80",
+    layer_count: str = "2",
+    target_fab: str = "jlcpcb_standard",
+    design_notes: str = "",
+) -> str:
+    """Render the canonical professional circuit design workflow prompt."""
+    notes = f"\n\nDesign intent summary:\n{design_notes.strip()}" if design_notes.strip() else ""
+    return f"""
+# Professional Circuit Design Workflow
+
+Circuit: {circuit_description or "(not specified)"}
+Board: {board_size_mm} mm, {layer_count} copper layer(s), target fab {target_fab}
+
+1. Project setup:
+   - `kicad_get_version()`
+   - `kicad_create_new_project()` or `kicad_set_project()`
+   - `project_set_design_intent()` before schematic work
+   - Read `kicad://project/info`
+2. Schematic capture:
+   - Use `sch_find_free_placement()` before placing symbols
+   - Add power symbols before dependent circuits
+   - Route wires, then call `sch_add_missing_junctions()`
+   - Run `sch_check_power_flags()` and `run_erc()`
+3. PCB transfer and placement:
+   - `pcb_set_board_outline()`
+   - `pcb_sync_from_schematic()`; the pre-sync gate blocks dirty schematics
+   - `pcb_auto_place_force_directed()` or the automatic sync placement result
+   - `pcb_place_decoupling_caps()`
+4. Routing:
+   - `route_export_dsn()`
+   - `route_autoroute_freerouting()`
+   - `route_import_ses()`
+   - `pcb_refill_zones()`
+5. Validation and release:
+   - `project_full_validation_loop(max_iterations=5)`
+   - `pcb_score_placement()`
+   - `check_design_for_manufacture(profile="{target_fab}")`
+   - `export_manufacturing_package()` only after `project_quality_gate()` is PASS
+
+Do not skip a stage. If a gate fails, read `kicad://project/fix_queue`, apply the
+first recommended fix, and rerun the relevant gate.{notes}
+""".strip()
+
+
 def register(mcp: FastMCP) -> None:
     """Register reusable workflow prompts."""
 
@@ -62,41 +109,12 @@ Move a design from schematic capture to PCB layout.
         target_fab: str = "jlcpcb_standard",
     ) -> list[TextContent]:
         """Canonical workflow for a complete professional circuit design."""
-        text = f"""
-# Professional Circuit Design Workflow
-
-Circuit: {circuit_description or "(not specified)"}
-Board: {board_size_mm} mm, {layer_count} copper layer(s), target fab {target_fab}
-
-1. Project setup:
-   - `kicad_get_version()`
-   - `kicad_create_new_project()` or `kicad_set_project()`
-   - `project_set_design_intent()` before schematic work
-   - Read `kicad://project/info`
-2. Schematic capture:
-   - Use `sch_find_free_placement()` before placing symbols
-   - Add power symbols before dependent circuits
-   - Route wires, then call `sch_add_missing_junctions()`
-   - Run `sch_check_power_flags()` and `run_erc()`
-3. PCB transfer and placement:
-   - `pcb_set_board_outline()`
-   - `pcb_sync_from_schematic()`; the pre-sync gate blocks dirty schematics
-   - `pcb_auto_place_force_directed()` or the automatic sync placement result
-   - `pcb_place_decoupling_caps()`
-4. Routing:
-   - `route_export_dsn()`
-   - `route_autoroute_freerouting()`
-   - `route_import_ses()`
-   - `pcb_refill_zones()`
-5. Validation and release:
-   - `project_full_validation_loop(max_iterations=5)`
-   - `pcb_score_placement()`
-   - `check_design_for_manufacture(profile="{target_fab}")`
-   - `export_manufacturing_package()` only after `project_quality_gate()` is PASS
-
-Do not skip a stage. If a gate fails, read `kicad://project/fix_queue`, apply the
-first recommended fix, and rerun the relevant gate.
-""".strip()
+        text = render_professional_circuit_design_prompt(
+            circuit_description=circuit_description,
+            board_size_mm=board_size_mm,
+            layer_count=layer_count,
+            target_fab=target_fab,
+        )
         return [TextContent(type="text", text=text)]
 
     @mcp.prompt()

@@ -28,7 +28,7 @@ def _footprint_block(
         f"\t\t(at {x_mm:.2f} {y_mm:.2f} 0)\n"
         f'\t\t(property "Reference" "{reference}" (at 0 0 0) (layer "F.SilkS"))\n'
         f'\t\t(property "Value" "{value}" (at 0 1 0) (layer "F.Fab"))\n'
-        f'\t\t(fp_rect (start {-half_w:.2f} {-half_h:.2f}) (end {half_w:.2f} {half_h:.2f}) '
+        f"\t\t(fp_rect (start {-half_w:.2f} {-half_h:.2f}) (end {half_w:.2f} {half_h:.2f}) "
         '(stroke (width 0.05) (type solid)) (fill no) (layer "F.CrtYd"))\n'
         f'\t\t(pad "1" smd rect (at 0 0) (size 1 1) '
         f'(layers "F.Cu" "F.Mask" "F.Paste"){net_clause})\n'
@@ -40,12 +40,10 @@ def _write_board(sample_project: Path, *footprints: str) -> None:
     (sample_project / "demo.kicad_pcb").write_text(
         (
             "(kicad_pcb\n"
-            '\t(version 20250216)\n'
+            "\t(version 20250216)\n"
             '\t(generator "pytest")\n'
-            '\t(gr_rect (start 0 0) (end 40 30) (stroke (width 0.05) (type solid)) '
-            '(fill no) (layer "Edge.Cuts"))\n'
-            + "".join(footprints)
-            + ")\n"
+            "\t(gr_rect (start 0 0) (end 40 30) (stroke (width 0.05) (type solid)) "
+            '(fill no) (layer "Edge.Cuts"))\n' + "".join(footprints) + ")\n"
         ),
         encoding="utf-8",
     )

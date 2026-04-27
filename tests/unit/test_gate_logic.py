@@ -27,4 +27,3 @@ def test_project_gate_payload_renders_summary() -> None:
     assert payload.status == "FAIL"
     assert "Project quality gate: FAIL" in payload.text
     assert payload.outcomes[1].details == ["Too close"]
-

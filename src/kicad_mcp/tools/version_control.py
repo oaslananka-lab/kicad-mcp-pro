@@ -266,9 +266,7 @@ def register(mcp: FastMCP) -> None:
         lines = [f"Checkpoints ({len(entries)} total):"]
         for entry in entries[:20]:
             commit_hash, short_hash, created_at, subject = entry.split("\t", 3)
-            lines.append(
-                f"- {short_hash} | {created_at} | {subject} | commit={commit_hash}"
-            )
+            lines.append(f"- {short_hash} | {created_at} | {subject} | commit={commit_hash}")
         return "\n".join(lines)
 
     @mcp.tool()

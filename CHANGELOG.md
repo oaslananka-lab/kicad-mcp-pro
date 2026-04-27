@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [3.0.1] - 2026-04-27
+
+### Added
+
+- Added HTTP token rotation, per-tool metrics, request audit logging, heavy-tool rate limiting, and expanded server-card capability negotiation.
+- Added explicit variant selection for gated manufacturing package export.
+- Added `project_generate_design_prompt()` and AC PDN impedance estimates for `check_power_integrity()`.
+- Added release-hardening tests for profile discovery, fixer imports, gate-history migrations, watcher locking, CLI retry behavior, structured errors, metadata linting, and benchmark latency.
+
+### Changed
+
+- Bumped project release version to 3.0.1 across package/runtime/registry metadata.
+- Tool execution failures now return MCP `isError` results with structured `error_code`, `message`, and `hint` content for capable clients.
+- Published tool descriptions are normalized to meet metadata lint requirements.
+- Deprecated `tune_track_length()` now emits a `UserWarning` in addition to the existing structured log warning.
+
+### Fixed
+
+- Fixed discovery gaps for validation CLI tools and the `builder`, `critic`, and `release_manager` profile surface.
+- Fixed `_SyncServerHandle.list_tools()` returning a coroutine when called inside an active event loop.
+- Fixed studio watch auto-detection overriding an explicitly configured project directory.
+- Added `PRAGMA user_version` schema versioning for gate-history SQLite databases.
+
 ## [3.0.0] - 2026-04-26
 
 ### Added

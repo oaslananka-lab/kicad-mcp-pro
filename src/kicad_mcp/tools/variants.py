@@ -147,8 +147,7 @@ def _ensure_variant(state: dict[str, Any], name: str) -> dict[str, Any]:
     variants = cast(dict[str, dict[str, Any]], state.setdefault("variants", {}))
     if name not in variants:
         raise ValueError(
-            f"Variant '{name}' was not found. "
-            f"Existing variants: {', '.join(_variant_names(state))}"
+            f"Variant '{name}' was not found. Existing variants: {', '.join(_variant_names(state))}"
         )
     return variants[name]
 
@@ -239,11 +238,7 @@ def register(mcp: FastMCP) -> None:
         variants = state.setdefault("variants", {})
         if name in variants:
             raise ValueError(f"Variant '{name}' already exists.")
-        source = (
-            dict(_ensure_variant(state, base_variant))
-            if base_variant
-            else {"overrides": {}}
-        )
+        source = dict(_ensure_variant(state, base_variant)) if base_variant else {"overrides": {}}
         variants[name] = {
             "overrides": dict(source.get("overrides", {})),
         }

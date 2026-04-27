@@ -26,6 +26,7 @@ from ..models.intent import (
     PowerRailSpec,
     ThermalEnvelope,
 )
+from ..prompts.workflows import render_professional_circuit_design_prompt
 from ..utils.cache import clear_ttl_cache, ttl_cache
 from .fixers import fixers_for_gate, sampling_prompt_for_gate
 from .metadata import headless_compatible
@@ -380,16 +381,11 @@ def _render_design_intent(intent: ProjectDesignIntent) -> str:
         "- Analog refs: " + (", ".join(intent.analog_refs) if intent.analog_refs else "(none)")
     )
     lines.append(
-        "- Digital refs: "
-        + (", ".join(intent.digital_refs) if intent.digital_refs else "(none)")
+        "- Digital refs: " + (", ".join(intent.digital_refs) if intent.digital_refs else "(none)")
     )
     lines.append(
         "- Sensor cluster refs: "
-        + (
-            ", ".join(intent.sensor_cluster_refs)
-            if intent.sensor_cluster_refs
-            else "(none)"
-        )
+        + (", ".join(intent.sensor_cluster_refs) if intent.sensor_cluster_refs else "(none)")
     )
     lines.append(
         "- Manufacturer: "
@@ -415,8 +411,7 @@ def _render_design_intent(intent: ProjectDesignIntent) -> str:
     lines.append(f"- Decoupling pairs: {len(intent.decoupling_pairs)}")
     for pair in intent.decoupling_pairs[:10]:
         lines.append(
-            f"  {pair.ic_ref} <- {', '.join(pair.cap_refs)} "
-            f"(max {pair.max_distance_mm:.2f} mm)"
+            f"  {pair.ic_ref} <- {', '.join(pair.cap_refs)} (max {pair.max_distance_mm:.2f} mm)"
         )
     lines.append(f"- RF keepout regions: {len(intent.rf_keepout_regions)}")
     for region in intent.rf_keepout_regions[:10]:
@@ -437,16 +432,13 @@ def _render_design_intent(intent: ProjectDesignIntent) -> str:
         lines.append(f"- Interfaces: {len(intent.interfaces)}")
         for iface in intent.interfaces[:10]:
             impedance = (
-                f"  {iface.impedance_target_ohm}ohm"
-                + (" diff" if iface.differential else "")
+                f"  {iface.impedance_target_ohm}ohm" + (" diff" if iface.differential else "")
                 if iface.impedance_target_ohm is not None
                 else ""
             )
             lines.append(f"  {iface.kind}{impedance}")
     if intent.compliance:
-        lines.append(
-            "- Compliance: " + ", ".join(c.kind for c in intent.compliance)
-        )
+        lines.append("- Compliance: " + ", ".join(c.kind for c in intent.compliance))
     if intent.cost.unit_cost_usd_max is not None:
         lines.append(f"- Cost target: <${intent.cost.unit_cost_usd_max:.2f}/unit")
     if intent.mechanical.max_height_mm is not None:
@@ -551,8 +543,7 @@ def _infer_design_intent_from_board() -> tuple[ProjectDesignIntent, list[str]]:
         )
 
     categories = {
-        reference: _component_category(reference, entry)
-        for reference, entry in footprints.items()
+        reference: _component_category(reference, entry) for reference, entry in footprints.items()
     }
     connector_refs = sorted(
         reference for reference, category in categories.items() if category == "connector"
@@ -564,9 +555,7 @@ def _infer_design_intent_from_board() -> tuple[ProjectDesignIntent, list[str]]:
         reference for reference, category in categories.items() if category == "analog"
     )
     digital_refs = sorted(
-        reference
-        for reference, category in categories.items()
-        if category in {"digital", "mcu"}
+        reference for reference, category in categories.items() if category in {"digital", "mcu"}
     )
     power_tree_refs = sorted(
         (
@@ -935,14 +924,10 @@ def register(mcp: FastMCP) -> None:
             analog_refs=existing.analog_refs if analog_refs is None else analog_refs,
             digital_refs=existing.digital_refs if digital_refs is None else digital_refs,
             sensor_cluster_refs=(
-                existing.sensor_cluster_refs
-                if sensor_cluster_refs is None
-                else sensor_cluster_refs
+                existing.sensor_cluster_refs if sensor_cluster_refs is None else sensor_cluster_refs
             ),
             rf_keepout_regions=(
-                existing.rf_keepout_regions
-                if rf_keepout_regions is None
-                else rf_keepout_regions
+                existing.rf_keepout_regions if rf_keepout_regions is None else rf_keepout_regions
             ),
             manufacturer=existing.manufacturer if not manufacturer else manufacturer,
             manufacturer_tier=(
@@ -982,9 +967,7 @@ def register(mcp: FastMCP) -> None:
                 if compliance is None
                 else [ComplianceTarget.model_validate(c) for c in compliance]
             ),
-            cost=(
-                existing.cost if cost is None else CostTarget.model_validate(cost)
-            ),
+            cost=(existing.cost if cost is None else CostTarget.model_validate(cost)),
             thermal=(
                 existing.thermal if thermal is None else ThermalEnvelope.model_validate(thermal)
             ),
@@ -1063,6 +1046,63 @@ def register(mcp: FastMCP) -> None:
             text="\n".join(lines),
             valid=not issues,
             issues=issues,
+        )
+
+    @mcp.tool()
+    @headless_compatible
+    def project_generate_design_prompt(
+        circuit_description: str = "",
+        target_fab: str = "",
+    ) -> str:
+        """Generate a professional workflow prompt tailored to the resolved project spec."""
+        resolution = resolve_design_intent()
+        intent = resolution.resolved
+        mechanical = intent.mechanical
+        board_size = (
+            f"{mechanical.board_width_mm:g}x{mechanical.board_height_mm:g}"
+            if mechanical.board_width_mm is not None and mechanical.board_height_mm is not None
+            else "100x80"
+        )
+        fab = target_fab.strip()
+        if not fab:
+            manufacturer = (intent.manufacturer or "jlcpcb").strip().lower()
+            tier = (intent.manufacturer_tier or "standard").strip().lower()
+            fab = f"{manufacturer}_{tier}"
+        notes = [
+            "- Critical nets: "
+            + (", ".join(intent.critical_nets) if intent.critical_nets else "(none)"),
+            "- Power rails: "
+            + (
+                ", ".join(
+                    f"{rail.name} {rail.voltage_v:g}V/{rail.current_max_a:g}A"
+                    for rail in intent.power_rails
+                )
+                if intent.power_rails
+                else "(none)"
+            ),
+            "- Interfaces: "
+            + (
+                ", ".join(
+                    f"{iface.kind}"
+                    + (
+                        f" {iface.impedance_target_ohm:g}ohm"
+                        if iface.impedance_target_ohm is not None
+                        else ""
+                    )
+                    for iface in intent.interfaces
+                )
+                if intent.interfaces
+                else "(none)"
+            ),
+            "- Thermal hotspots: "
+            + (", ".join(intent.thermal_hotspots) if intent.thermal_hotspots else "(none)"),
+        ]
+        return render_professional_circuit_design_prompt(
+            circuit_description=circuit_description or "KiCad project",
+            board_size_mm=board_size,
+            layer_count="2",
+            target_fab=fab,
+            design_notes="\n".join(notes),
         )
 
     @mcp.tool()
@@ -1218,9 +1258,7 @@ def register(mcp: FastMCP) -> None:
                     gate=outcome.name,
                     status=outcome.status,
                     auto_fixed=False,
-                    auto_fix_description=(
-                        auto_fixer.description if auto_fixer is not None else ""
-                    ),
+                    auto_fix_description=(auto_fixer.description if auto_fixer is not None else ""),
                     agent_tool=(
                         (agent_fixer.tool if agent_fixer is not None else "")
                         or (auto_fixer.tool if auto_fixer is not None else "")
@@ -1236,9 +1274,7 @@ def register(mcp: FastMCP) -> None:
         remaining = sum(1 for a in actions if not a.auto_fixed)
         ready = len(actions) == 0
 
-        lines = [
-            f"project_auto_fix_loop: {iterations_used}/{max_iterations} iteration(s) used."
-        ]
+        lines = [f"project_auto_fix_loop: {iterations_used}/{max_iterations} iteration(s) used."]
         if auto_fix_log:
             lines.append("Server-side auto-fixes applied:")
             lines.extend(f"  {entry}" for entry in auto_fix_log)
@@ -1246,8 +1282,7 @@ def register(mcp: FastMCP) -> None:
             lines.append("Status: PASS — all gates pass. Ready for manufacturing release.")
         else:
             lines.append(
-                f"Status: {len(actions)} gate(s) still failing "
-                f"({remaining} require agent action)."
+                f"Status: {len(actions)} gate(s) still failing ({remaining} require agent action)."
             )
             for action in actions:
                 lines.append(
@@ -1256,9 +1291,7 @@ def register(mcp: FastMCP) -> None:
                 )
                 if action.sampling_guidance:
                     lines.append(f"    Sampling guidance: {action.sampling_guidance}")
-            lines.append(
-                "After applying the recommended tool, call project_auto_fix_loop() again."
-            )
+            lines.append("After applying the recommended tool, call project_auto_fix_loop() again.")
 
         combined = _combined_status(
             [
@@ -1326,13 +1359,11 @@ def register(mcp: FastMCP) -> None:
             try:
                 fix_result = fn()
                 fix_log.append(
-                    f"[iter {iterations_used}] {blocker.name}: "
-                    f"{auto_fixer.tool} -> {fix_result}"
+                    f"[iter {iterations_used}] {blocker.name}: {auto_fixer.tool} -> {fix_result}"
                 )
             except Exception as exc:
                 fix_log.append(
-                    f"[iter {iterations_used}] {blocker.name}: "
-                    f"{auto_fixer.tool} raised {exc}"
+                    f"[iter {iterations_used}] {blocker.name}: {auto_fixer.tool} raised {exc}"
                 )
                 break
             outcomes = _evaluate_project_gate()

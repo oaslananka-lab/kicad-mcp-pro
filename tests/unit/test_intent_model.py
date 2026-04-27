@@ -34,17 +34,13 @@ from kicad_mcp.tools.project import (
 
 V1_INTENT_JSON = {
     "connector_refs": ["J1", "J2"],
-    "decoupling_pairs": [
-        {"ic_ref": "U1", "cap_refs": ["C1", "C2"], "max_distance_mm": 3.0}
-    ],
+    "decoupling_pairs": [{"ic_ref": "U1", "cap_refs": ["C1", "C2"], "max_distance_mm": 3.0}],
     "critical_nets": ["USB_DP", "USB_DM"],
     "power_tree_refs": ["J1", "U2"],
     "analog_refs": ["U3"],
     "digital_refs": ["U1"],
     "sensor_cluster_refs": ["U4"],
-    "rf_keepout_regions": [
-        {"name": "ANT", "x_mm": 10.0, "y_mm": 20.0, "w_mm": 5.0, "h_mm": 5.0}
-    ],
+    "rf_keepout_regions": [{"name": "ANT", "x_mm": 10.0, "y_mm": 20.0, "w_mm": 5.0, "h_mm": 5.0}],
     "manufacturer": "jlcpcb",
     "manufacturer_tier": "standard",
 }
@@ -74,9 +70,7 @@ V2_EXTRA_FIELDS = {
     ],
     "mechanical": {
         "max_height_mm": 8.0,
-        "connector_placement": [
-            {"ref": "J1", "edge": "bottom", "margin_mm": 2.0}
-        ],
+        "connector_placement": [{"ref": "J1", "edge": "bottom", "margin_mm": 2.0}],
     },
     "compliance": [{"kind": "fcc_b"}, {"kind": "ce_emc"}],
     "cost": {"unit_cost_usd_max": 15.0, "volume_units": 1000},

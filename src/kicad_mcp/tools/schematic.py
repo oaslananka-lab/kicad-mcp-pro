@@ -61,18 +61,18 @@ DEFAULT_SHEET_HEIGHT_MM = 20.32
 
 # KiCad paper sizes (landscape, mm).  Used for sheet-boundary clamping.
 PAPER_SIZES_MM: dict[str, tuple[float, float]] = {
-    "A4":     (297.0,  210.0),
-    "A3":     (420.0,  297.0),
-    "A2":     (594.0,  420.0),
-    "A1":     (841.0,  594.0),
-    "A0":     (1189.0, 841.0),
-    "A":      (279.4,  215.9),   # ANSI A (letter)
-    "B":      (431.8,  279.4),   # ANSI B (tabloid)
-    "C":      (558.8,  431.8),
-    "D":      (863.6,  558.8),
-    "E":      (1117.6, 863.6),
+    "A4": (297.0, 210.0),
+    "A3": (420.0, 297.0),
+    "A2": (594.0, 420.0),
+    "A1": (841.0, 594.0),
+    "A0": (1189.0, 841.0),
+    "A": (279.4, 215.9),  # ANSI A (letter)
+    "B": (431.8, 279.4),  # ANSI B (tabloid)
+    "C": (558.8, 431.8),
+    "D": (863.6, 558.8),
+    "E": (1117.6, 863.6),
     "USLetter": (279.4, 215.9),
-    "USLegal":  (355.6, 215.9),
+    "USLegal": (355.6, 215.9),
 }
 # Margin inside the sheet border kept free of symbols.
 _SHEET_MARGIN_MM = 15.0
@@ -302,8 +302,7 @@ SCHEMATIC_BACKEND_CAPABILITY_MATRIX: dict[str, SchematicCapabilityEntry] = {
         "kicad_sch_api_support": "native",
         "verified_surface": ["SheetManager.get_sheet_by_name"],
         "notes": (
-            "Detailed sheet metadata is available directly from "
-            "SheetManager.get_sheet_by_name()."
+            "Detailed sheet metadata is available directly from SheetManager.get_sheet_by_name()."
         ),
     },
     "sch_route_wire_between_pins": {
@@ -432,6 +431,7 @@ class _LoadedSchematicLike(Protocol):
     ) -> str: ...
 
     def save(self, file_path: Path | str | None = None, preserve_format: bool = True) -> object: ...
+
 
 def _load_kicad_schematic(sch_file: Path) -> _LoadedSchematicLike:
     from kicad_sch_api import load_schematic
@@ -695,8 +695,8 @@ def _auto_layout_point(index: int) -> tuple[float, float]:
 # Approximate bounding box half-sizes for common symbol categories (mm).
 # These are heuristic estimates; KiCad doesn't expose symbol extents via the
 # file-level API, so we size conservatively.
-_SYMBOL_HALF_W_MM = 10.16   # ~4 pins wide  (2 × 2.54 × 2)
-_SYMBOL_HALF_H_MM = 7.62    # ~3 pins tall
+_SYMBOL_HALF_W_MM = 10.16  # ~4 pins wide  (2 × 2.54 × 2)
+_SYMBOL_HALF_H_MM = 7.62  # ~3 pins tall
 
 
 @dataclass(frozen=True)
@@ -808,20 +808,20 @@ def _validate_footprint(footprint: str) -> str | None:
 #   row 5:   power pass   passives     transistors / filter
 #   row 7:   test points  ---          ---
 _FUNCTIONAL_ZONES: dict[str, tuple[int, int]] = {
-    "connector":    (0, 0),   # Left — connectors, headers
-    "mcu":          (3, 0),   # Centre-left — main processor
-    "ui":           (6, 0),   # Right — LED, buzzer, button, switch
-    "power_ic":     (0, 3),   # Left-mid — LDO, buck, PMU
-    "sensor":       (3, 3),   # Centre-mid — sensors
-    "ic":           (3, 3),   # Generic IC — shares sensor zone
-    "protection":   (6, 3),   # Right-mid — ESD, TVS, fuse, diode
-    "power_pass":   (0, 5),   # Left-lower — bulk caps, ferrite, input
-    "passive_cap":  (2, 5),   # Lower-centre-left — decoupling caps
-    "passive_res":  (4, 5),   # Lower-centre — resistors
-    "transistor":   (6, 5),   # Right-lower — MOSFET, BJT
-    "filter":       (6, 6),   # Right-bottom — ferrite, LC filter
-    "testpoint":    (0, 7),   # Bottom-left — test points
-    "misc":         (5, 7),   # Bottom-right — anything else
+    "connector": (0, 0),  # Left — connectors, headers
+    "mcu": (3, 0),  # Centre-left — main processor
+    "ui": (6, 0),  # Right — LED, buzzer, button, switch
+    "power_ic": (0, 3),  # Left-mid — LDO, buck, PMU
+    "sensor": (3, 3),  # Centre-mid — sensors
+    "ic": (3, 3),  # Generic IC — shares sensor zone
+    "protection": (6, 3),  # Right-mid — ESD, TVS, fuse, diode
+    "power_pass": (0, 5),  # Left-lower — bulk caps, ferrite, input
+    "passive_cap": (2, 5),  # Lower-centre-left — decoupling caps
+    "passive_res": (4, 5),  # Lower-centre — resistors
+    "transistor": (6, 5),  # Right-lower — MOSFET, BJT
+    "filter": (6, 6),  # Right-bottom — ferrite, LC filter
+    "testpoint": (0, 7),  # Bottom-left — test points
+    "misc": (5, 7),  # Bottom-right — anything else
 }
 
 # Maximum sub-columns per zone before wrapping to the next sub-row within it.
@@ -885,8 +885,7 @@ def _classify_symbol(ref: str, value: str, lib_id: str) -> str:
     # ICs — further classify
     if prefix == "U":
         if any(
-            k in lib_up
-            for k in ("ESP32", "STM32", "ATMEGA", "NRF5", "RP2", "PIC", "RF_MODULE")
+            k in lib_up for k in ("ESP32", "STM32", "ATMEGA", "NRF5", "RP2", "PIC", "RF_MODULE")
         ):
             return "mcu"
         if any(
@@ -1056,18 +1055,10 @@ def _keepout_occupied_cells(
     blocked: set[tuple[int, int]] = set()
     for region in keepout_regions:
         x_min, y_min, x_max, y_max = _normalize_keepout_region(region)
-        start_col = int(
-            math.floor((x_min - _SYMBOL_HALF_W_MM - AUTO_LAYOUT_ORIGIN_X_MM) / cell_w)
-        )
-        end_col = int(
-            math.ceil((x_max + _SYMBOL_HALF_W_MM - AUTO_LAYOUT_ORIGIN_X_MM) / cell_w)
-        )
-        start_row = int(
-            math.floor((y_min - _SYMBOL_HALF_H_MM - AUTO_LAYOUT_ORIGIN_Y_MM) / cell_h)
-        )
-        end_row = int(
-            math.ceil((y_max + _SYMBOL_HALF_H_MM - AUTO_LAYOUT_ORIGIN_Y_MM) / cell_h)
-        )
+        start_col = int(math.floor((x_min - _SYMBOL_HALF_W_MM - AUTO_LAYOUT_ORIGIN_X_MM) / cell_w))
+        end_col = int(math.ceil((x_max + _SYMBOL_HALF_W_MM - AUTO_LAYOUT_ORIGIN_X_MM) / cell_w))
+        start_row = int(math.floor((y_min - _SYMBOL_HALF_H_MM - AUTO_LAYOUT_ORIGIN_Y_MM) / cell_h))
+        end_row = int(math.ceil((y_max + _SYMBOL_HALF_H_MM - AUTO_LAYOUT_ORIGIN_Y_MM) / cell_h))
         for col in range(start_col, end_col + 1):
             for row in range(start_row, end_row + 1):
                 blocked.add((col, row))
@@ -2334,8 +2325,10 @@ def _endpoint_specs_for_routing(
 ) -> list[dict[str, Any]]:
     name = _net_name(net)
     endpoints = _net_endpoints(net)
-    if _is_power_net(name) and name.upper() in power_points and not any(
-        _endpoint_power(endpoint) for endpoint in endpoints
+    if (
+        _is_power_net(name)
+        and name.upper() in power_points
+        and not any(_endpoint_power(endpoint) for endpoint in endpoints)
     ):
         endpoints.append({"power": name})
     elif name in label_points and not any(_endpoint_label(endpoint) for endpoint in endpoints):
@@ -3115,10 +3108,7 @@ def _shift_symbol_block(block: str, dx_mm: float, dy_mm: float) -> str:
     def repl(match: re.Match[str]) -> str:
         shifted_x = float(match.group(2)) + dx_mm
         shifted_y = float(match.group(3)) + dy_mm
-        return (
-            f"{match.group(1)}{_fmt_mm(shifted_x)} "
-            f"{_fmt_mm(shifted_y)}{match.group(4)}"
-        )
+        return f"{match.group(1)}{_fmt_mm(shifted_x)} {_fmt_mm(shifted_y)}{match.group(4)}"
 
     return at_pattern.sub(repl, block)
 
@@ -3516,8 +3506,7 @@ def register(mcp: FastMCP) -> None:
         schematic_settings["hop_over_display"] = bool(enabled)
         cfg.project_file.write_text(json.dumps(project_payload, indent=2), encoding="utf-8")
         return (
-            f"Hop-over display set to {'enabled' if enabled else 'disabled'} in "
-            f"{cfg.project_file}."
+            f"Hop-over display set to {'enabled' if enabled else 'disabled'} in {cfg.project_file}."
         )
 
     @mcp.tool()
@@ -3658,6 +3647,7 @@ def register(mcp: FastMCP) -> None:
         )
         target_x, target_y = _snap_point(payload.x_mm, payload.y_mm, payload.snap_to_grid)
         snap_note = _snap_notice((payload.x_mm, payload.y_mm), (target_x, target_y))
+
         def mutator(current: str) -> str:
             match = _find_placed_symbol_block(current, payload.reference)
             if match is None:
@@ -3701,8 +3691,7 @@ def register(mcp: FastMCP) -> None:
         if len(matches) > 1:
             matching_ids = ", ".join(str(wire["uuid"]) for wire in matches[:5])
             return (
-                f"Wire identifier '{payload.wire_id}' is ambiguous. "
-                f"Matching UUIDs: {matching_ids}"
+                f"Wire identifier '{payload.wire_id}' is ambiguous. Matching UUIDs: {matching_ids}"
             )
 
         target = matches[0]
@@ -3772,9 +3761,7 @@ def register(mcp: FastMCP) -> None:
                 raise ValueError(f"Reference '{payload.reference}' was not found in the schematic.")
             removed_symbol_count = len(matches)
             connection_points = {
-                point
-                for _, _, _, parsed in matches
-                for point in _symbol_connection_points(parsed)
+                point for _, _, _, parsed in matches for point in _symbol_connection_points(parsed)
             }
 
             pieces: list[str] = []
@@ -3866,7 +3853,7 @@ def register(mcp: FastMCP) -> None:
         nets: list[dict[str, Any]] | None = None,
         snap_to_grid: bool = True,
         auto_layout: bool = False,
-        ) -> str:
+    ) -> str:
         """Build (overwrite) the active schematic from structured symbol, wire, and label inputs.
 
         IMPORTANT: This tool **replaces** the entire schematic content.  Any symbols
@@ -4388,8 +4375,7 @@ def register(mcp: FastMCP) -> None:
         )
         if not segments:
             return (
-                f"{payload.ref1}:{payload.pin1} and {payload.ref2}:{payload.pin2} "
-                "already overlap."
+                f"{payload.ref1}:{payload.pin1} and {payload.ref2}:{payload.pin2} already overlap."
             )
 
         def mutator(current: str) -> str:
@@ -4424,12 +4410,10 @@ def register(mcp: FastMCP) -> None:
         lines = [f"Connectivity groups ({len(groups)} total):"]
         for index, group in enumerate(groups, start=1):
             names = ", ".join(group["names"]) if group["names"] else "~unnamed"
-            pins = ", ".join(
-                f"{item['reference']}:{item['pin']}" for item in group["pins"]
-            ) or "none"
-            lines.append(
-                f"- Group {index}: {names} | pins={pins} | points={len(group['points'])}"
+            pins = (
+                ", ".join(f"{item['reference']}:{item['pin']}" for item in group["pins"]) or "none"
             )
+            lines.append(f"- Group {index}: {names} | pins={pins} | points={len(group['points'])}")
         return "\n".join(lines)
 
     @mcp.tool()
@@ -4449,14 +4433,10 @@ def register(mcp: FastMCP) -> None:
                 continue
             child_data = parse_schematic_file(child_path)
             matched_labels = [
-                label
-                for label in child_data["labels"]
-                if str(label["name"]) == target
+                label for label in child_data["labels"] if str(label["name"]) == target
             ]
             matched_power = [
-                symbol
-                for symbol in child_data["power_symbols"]
-                if str(symbol["value"]) == target
+                symbol for symbol in child_data["power_symbols"] if str(symbol["value"]) == target
             ]
             if matched_labels or matched_power:
                 child_matches.append(
@@ -4470,9 +4450,10 @@ def register(mcp: FastMCP) -> None:
         lines = [f"Trace for net '{target}':"]
         if local_matches:
             for index, group in enumerate(local_matches, start=1):
-                pins = ", ".join(
-                    f"{item['reference']}:{item['pin']}" for item in group["pins"]
-                ) or "none"
+                pins = (
+                    ", ".join(f"{item['reference']}:{item['pin']}" for item in group["pins"])
+                    or "none"
+                )
                 lines.append(
                     f"- Top level match {index}: pins={pins} points={len(group['points'])}"
                 )
@@ -4507,9 +4488,7 @@ def register(mcp: FastMCP) -> None:
         sch_data = parse_schematic_file(sch_file)
         all_syms = sch_data["symbols"] + sch_data["power_symbols"]
 
-        requested = payload.symbol_list or [
-            str(sym["reference"]) for sym in sch_data["symbols"]
-        ]
+        requested = payload.symbol_list or [str(sym["reference"]) for sym in sch_data["symbols"]]
         if not requested:
             return "The active schematic contains no symbols to auto-place."
 
@@ -4700,9 +4679,7 @@ def register(mcp: FastMCP) -> None:
         ]
         for i, (x, y) in enumerate(coords, start=1):
             lines.append(f"  Slot {i}: x_mm={x}, y_mm={y}")
-        lines.append(
-            "\nPass these coordinates directly to sch_add_symbol(x_mm=..., y_mm=...)."
-        )
+        lines.append("\nPass these coordinates directly to sch_add_symbol(x_mm=..., y_mm=...).")
         return "\n".join(lines)
 
     @mcp.tool()
@@ -4732,10 +4709,7 @@ def register(mcp: FastMCP) -> None:
         paper = paper.strip()
         if paper not in PAPER_SIZES_MM:
             available = ", ".join(sorted(PAPER_SIZES_MM))
-            return (
-                f"Unknown paper size '{paper}'. "
-                f"Available sizes: {available}."
-            )
+            return f"Unknown paper size '{paper}'. Available sizes: {available}."
 
         sch_file = _get_schematic_file()
         try:
@@ -4758,16 +4732,14 @@ def register(mcp: FastMCP) -> None:
         else:
             # Insert after the kicad_sch opening tag
             new_text = re.sub(
-                r'(\(kicad_sch[^\n]*\n)',
+                r"(\(kicad_sch[^\n]*\n)",
                 rf'\1  (paper "{paper}")\n',
                 text,
                 count=1,
             )
 
         if new_text == text:
-            return (
-                f"Sheet is already '{paper}' ({new_w:.0f} x {new_h:.0f} mm). No change made."
-            )
+            return f"Sheet is already '{paper}' ({new_w:.0f} x {new_h:.0f} mm). No change made."
 
         try:
             sch_file.write_text(new_text, encoding="utf-8")
@@ -4893,9 +4865,7 @@ def register(mcp: FastMCP) -> None:
         sch_data = parse_schematic_file(sch_file)
         all_syms = sch_data["symbols"] + sch_data["power_symbols"]
 
-        requested: list[str] = symbol_list or [
-            str(s["reference"]) for s in sch_data["symbols"]
-        ]
+        requested: list[str] = symbol_list or [str(s["reference"]) for s in sch_data["symbols"]]
         if not requested:
             return "The active schematic contains no symbols to place."
 
@@ -4922,9 +4892,7 @@ def register(mcp: FastMCP) -> None:
         global_occupied = _estimate_occupied_cells(fixed_syms)
 
         # Per-zone occupancy
-        zone_occupied: dict[str, set[tuple[int, int]]] = {
-            z: set() for z in _FUNCTIONAL_ZONES
-        }
+        zone_occupied: dict[str, set[tuple[int, int]]] = {z: set() for z in _FUNCTIONAL_ZONES}
 
         # Build symbol metadata lookup
         sym_meta: dict[str, dict[str, str]] = {}
@@ -5120,12 +5088,12 @@ def register(mcp: FastMCP) -> None:
         if not yaml_file.exists():
             available = [f.stem for f in templates_dir.glob("*.yaml")]
             return (
-                f"Template '{template_name}' not found. "
-                f"Available: {', '.join(sorted(available))}"
+                f"Template '{template_name}' not found. Available: {', '.join(sorted(available))}"
             )
 
         try:
             import yaml
+
             with yaml_file.open(encoding="utf-8") as fh:
                 data = yaml.safe_load(fh)
         except ImportError:
@@ -5224,12 +5192,12 @@ def register(mcp: FastMCP) -> None:
         if not yaml_file.exists():
             available = [f.stem for f in templates_dir.glob("*.yaml")]
             return (
-                f"Template '{template_name}' not found. "
-                f"Available: {', '.join(sorted(available))}"
+                f"Template '{template_name}' not found. Available: {', '.join(sorted(available))}"
             )
 
         try:
             import yaml
+
             with yaml_file.open(encoding="utf-8") as fh:
                 data = yaml.safe_load(fh)
         except ImportError:
@@ -5238,9 +5206,7 @@ def register(mcp: FastMCP) -> None:
             return f"Could not parse template '{template_name}': {exc}"
 
         params = params or {}
-        defaults = {
-            k: v.get("default") for k, v in data.get("parameters", {}).items()
-        }
+        defaults = {k: v.get("default") for k, v in data.get("parameters", {}).items()}
         resolved = {**defaults, **params}
 
         symbols = data.get("symbols", [])
@@ -5266,9 +5232,7 @@ def register(mcp: FastMCP) -> None:
         ]
         for i, sym in enumerate(symbols, start=1):
             ref = f"{prefix_str}{sym.get('ref_prefix', 'X')}{i}"
-            lines.append(
-                f"- `sch_add_symbol(reference={ref!r}, value={sym.get('value', '?')!r})`"
-            )
+            lines.append(f"- `sch_add_symbol(reference={ref!r}, value={sym.get('value', '?')!r})`")
             lines.append(f"  Comment: {sym.get('comment', '')}")
             lines.append(f"  Footprint hint: {sym.get('default_footprint', '—')}")
 
@@ -5288,13 +5252,9 @@ def register(mcp: FastMCP) -> None:
                 query = str(query_template)
                 for k, v in resolved.items():
                     query = query.replace(f"{{{k}}}", str(v))
-                lines.append(
-                    f"- **{role}**: `lib_recommend_part(category={query!r})`"
-                )
+                lines.append(f"- **{role}**: `lib_recommend_part(category={query!r})`")
         else:
-            lines.append(
-                "- Use lib_search_components() or lib_recommend_part() for each symbol."
-            )
+            lines.append("- Use lib_search_components() or lib_recommend_part() for each symbol.")
 
         lines += [
             "",

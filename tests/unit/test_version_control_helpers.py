@@ -160,8 +160,10 @@ def test_register_version_control_tools(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         version_control,
         "_run_git",
-        lambda repo, *args, **kwargs: init_calls.append((repo, args))
-        or subprocess.CompletedProcess(["git"], 0, stdout="", stderr=""),
+        lambda repo, *args, **kwargs: (
+            init_calls.append((repo, args))
+            or subprocess.CompletedProcess(["git"], 0, stdout="", stderr="")
+        ),
     )
     monkeypatch.setattr(
         version_control,

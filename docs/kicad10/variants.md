@@ -11,6 +11,8 @@ The `variant_*` tools build effective BOM variants from the active schematic and
 - `variant_diff_bom(a, b)` returns a JSON BOM diff between two variants.
 - `variant_export_bom(variant, format="csv")` writes a variant-specific BOM under `output/variants/`.
 - Active variants are forwarded to compatible `kicad-cli` export commands through `--variant`.
+- `export_manufacturing_package(variant="name")` exports a gated manufacturing package for a
+  specific variant without changing the active variant saved in the project.
 
 ## Notes
 

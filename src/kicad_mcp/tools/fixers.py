@@ -12,8 +12,13 @@ The function must take no required arguments and return a ``str`` summary.
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass, field
 from typing import Any
+
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -159,6 +164,41 @@ BLOCKING_GATES: frozenset[str] = frozenset({"Schematic", "Schematic connectivity
 def fixers_for_gate(gate_name: str) -> list[FixerAction]:
     """Return the ordered fixer list for a gate, or an empty list if unknown."""
     return GATE_FIXERS.get(gate_name, [])
+
+
+def validate_callable_imports(
+    registry: dict[str, list[FixerAction]] | None = None,
+) -> list[str]:
+    """Validate auto-fixer callable import paths and log warnings for bad entries."""
+    missing: list[str] = []
+    for gate_name, actions in (registry or GATE_FIXERS).items():
+        for action in actions:
+            if not action.callable_import:
+                continue
+            try:
+                module_path, func_name = action.callable_import.rsplit(":", 1)
+                module = importlib.import_module(f"kicad_mcp.{module_path}")
+                candidate = getattr(module, func_name, None)
+            except Exception as exc:
+                missing.append(f"{gate_name}: {action.callable_import}")
+                logger.warning(
+                    "fixer_callable_import_invalid",
+                    gate=gate_name,
+                    tool=action.tool,
+                    callable_import=action.callable_import,
+                    error=str(exc),
+                )
+                continue
+            if not callable(candidate):
+                missing.append(f"{gate_name}: {action.callable_import}")
+                logger.warning(
+                    "fixer_callable_import_invalid",
+                    gate=gate_name,
+                    tool=action.tool,
+                    callable_import=action.callable_import,
+                    error="target is not callable",
+                )
+    return missing
 
 
 def auto_fix_description(gate_name: str) -> str | None:

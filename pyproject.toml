@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kicad-mcp-pro"
-version = "3.0.0"
+version = "3.0.1"
 description = "A professional Model Context Protocol server for KiCad EDA."
 readme = "README.md"
 license = { text = "MIT" }
@@ -93,6 +93,9 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "benchmark: lightweight performance regression checks with committed baselines",
+]
 
 [tool.coverage.run]
 source = ["src/kicad_mcp"]

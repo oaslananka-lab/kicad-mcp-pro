@@ -24,7 +24,7 @@ from ..models.power_integrity import (
 )
 from ..utils.impedance import copper_thickness_mm, recommended_decoupling_distance_mm
 from ..utils.layers import resolve_layer
-from ..utils.pdn_mesh import PdnLoad, PdnMesh
+from ..utils.pdn_mesh import PdnDecouplingCap, PdnLoad, PdnMesh
 from ..utils.units import _coord_nm, mm_to_mil, mm_to_nm, nm_to_mm
 
 _COPPER_RESISTIVITY_OHM_M = 1.724e-8
@@ -258,6 +258,11 @@ def register(mcp: FastMCP) -> None:
         trace_length_mm: float = 100.0,
         copper_weight_oz: float = 1.0,
         nominal_voltage_v: float = 3.3,
+        frequency_points_hz: list[float] | None = None,
+        decoupling_caps_uf: list[float] | None = None,
+        target_impedance_ohm: float | None = None,
+        decoupling_esr_mohm: float = 20.0,
+        decoupling_esl_nh: float = 1.0,
     ) -> str:
         """Run a lightweight PDN mesh voltage-drop check for a power net."""
         loads = [
@@ -275,6 +280,17 @@ def register(mcp: FastMCP) -> None:
             trace_width_mm=trace_width_mm,
             copper_weight_oz=copper_weight_oz,
             nominal_voltage_v=nominal_voltage_v,
+            frequency_points_hz=frequency_points_hz,
+            decoupling_caps=[
+                PdnDecouplingCap(
+                    ref=f"C{index}",
+                    capacitance_f=value_uf * 1e-6,
+                    esr_ohm=decoupling_esr_mohm / 1000.0,
+                    esl_h=decoupling_esl_nh * 1e-9,
+                )
+                for index, value_uf in enumerate(decoupling_caps_uf or [], start=1)
+            ],
+            target_impedance_ohm=target_impedance_ohm,
         )
         lines = [
             "PDN mesh check:",
@@ -285,6 +301,11 @@ def register(mcp: FastMCP) -> None:
         ]
         lines.extend(f"- {ref}: {drop:.2f} mV" for ref, drop in result.drops_mv.items())
         lines.extend(f"- FAIL: {item}" for item in result.violations)
+        if result.impedance_ohm:
+            lines.append(f"- Max AC impedance: {result.max_impedance_ohm:.4f} ohm")
+            for frequency_hz, impedance in result.impedance_ohm.items():
+                lines.append(f"- Z({frequency_hz:.0f} Hz): {impedance:.4f} ohm")
+        lines.extend(f"- IMPEDANCE FAIL: {item}" for item in result.impedance_violations)
         lines.extend(f"- Recommendation: {item}" for item in result.recommendations)
         return "\n".join(lines)
 

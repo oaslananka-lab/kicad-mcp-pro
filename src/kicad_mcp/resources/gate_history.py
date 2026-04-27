@@ -12,6 +12,8 @@ from typing import TypedDict, cast
 from ..config import get_config
 from ..tools.validation import GateOutcome, GateStatus
 
+SCHEMA_VERSION = 1
+
 
 class GateHistoryRecord(TypedDict):
     timestamp: str
@@ -45,6 +47,11 @@ class GateHistory:
 
     def _init(self) -> None:
         with sqlite3.connect(self.db_path) as db:
+            version = int(db.execute("PRAGMA user_version").fetchone()[0])
+            if version > SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"Gate history schema version {version} is newer than this server supports."
+                )
             db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS gate_history (
@@ -58,6 +65,7 @@ class GateHistory:
                 )
                 """
             )
+            db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def record(self, outcome: GateOutcome, auto_fixed: int = 0) -> None:
         issue_count = 0 if outcome.status == "PASS" else max(1, len(outcome.details))

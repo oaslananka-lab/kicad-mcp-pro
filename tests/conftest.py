@@ -18,6 +18,8 @@ if str(SRC) not in sys.path:
 
 def tool_text(result: object) -> str:
     """Extract text from a FastMCP tool result."""
+    if hasattr(result, "isError") and hasattr(result, "content"):
+        return tool_text(result.content)
     if isinstance(result, tuple) and len(result) == 2:
         content, structured = result
         if isinstance(structured, dict) and "result" in structured:
@@ -232,14 +234,14 @@ def sample_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_cli: Pa
             '(footprint "R_0805"\n'
             '\t(layer "F.Cu")\n'
             '\t(property "Reference" "REF**"\n'
-            '\t\t(at 0 -1.5 0)\n'
+            "\t\t(at 0 -1.5 0)\n"
             '\t\t(layer "F.SilkS")\n'
             "\t)\n"
             '\t(property "Value" "R_0805"\n'
-            '\t\t(at 0 1.5 0)\n'
+            "\t\t(at 0 1.5 0)\n"
             '\t\t(layer "F.Fab")\n'
             "\t)\n"
-            '\t(fp_rect (start -1.4 -0.9) (end 1.4 0.9)'
+            "\t(fp_rect (start -1.4 -0.9) (end 1.4 0.9)"
             ' (stroke (width 0.05) (type solid)) (fill no) (layer "F.CrtYd"))\n'
             '\t(pad "1" smd rect (at -0.95 0) (size 0.8 1.2)'
             ' (layers "F.Cu" "F.Mask" "F.Paste"))\n'
@@ -255,14 +257,14 @@ def sample_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_cli: Pa
             '(footprint "R_1206"\n'
             '\t(layer "F.Cu")\n'
             '\t(property "Reference" "REF**"\n'
-            '\t\t(at 0 -1.8 0)\n'
+            "\t\t(at 0 -1.8 0)\n"
             '\t\t(layer "F.SilkS")\n'
             "\t)\n"
             '\t(property "Value" "R_1206"\n'
-            '\t\t(at 0 1.8 0)\n'
+            "\t\t(at 0 1.8 0)\n"
             '\t\t(layer "F.Fab")\n'
             "\t)\n"
-            '\t(fp_rect (start -1.8 -1.0) (end 1.8 1.0)'
+            "\t(fp_rect (start -1.8 -1.0) (end 1.8 1.0)"
             ' (stroke (width 0.05) (type solid)) (fill no) (layer "F.CrtYd"))\n'
             '\t(pad "1" smd rect (at -1.4 0) (size 1.2 1.6)'
             ' (layers "F.Cu" "F.Mask" "F.Paste"))\n'

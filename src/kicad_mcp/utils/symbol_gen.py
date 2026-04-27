@@ -36,8 +36,8 @@ PinSide = Literal["left", "right", "top", "bottom"]
 
 # KiCad pin direction for each placement side
 _SIDE_DIR: dict[PinSide, str] = {
-    "left": "right",   # pin extends left → arrow points right into body
-    "right": "left",   # pin extends right → arrow points left into body
+    "left": "right",  # pin extends left → arrow points right into body
+    "right": "left",  # pin extends right → arrow points left into body
     "top": "down",
     "bottom": "up",
 }
@@ -45,7 +45,7 @@ _SIDE_DIR: dict[PinSide, str] = {
 # Grid spacing for symbol pins (50 mil = 1.27 mm in KiCad 6+ units)
 _PIN_PITCH = 2.54  # mm (100 mil)
 _PIN_LENGTH = 2.54  # mm (100 mil)
-_BOX_PAD = 2.54    # mm margin inside body rectangle
+_BOX_PAD = 2.54  # mm margin inside body rectangle
 
 
 @dataclass
@@ -153,23 +153,23 @@ def generate_symbol(
         "\t\t(in_bom yes)",
         "\t\t(on_board yes)",
         # Properties
-        f"\t\t(property \"Reference\" {_escape(reference_prefix)}",
+        f'\t\t(property "Reference" {_escape(reference_prefix)}',
         "\t\t\t(at 0 0 0)",
         "\t\t\t(effects (font (size 1.27 1.27)))",
         "\t\t)",
-        f"\t\t(property \"Value\" {_escape(name)}",
+        f'\t\t(property "Value" {_escape(name)}',
         "\t\t\t(at 0 -2.54 0)",
         "\t\t\t(effects (font (size 1.27 1.27)))",
         "\t\t)",
-        f"\t\t(property \"Footprint\" {_escape(footprint_hint)}",
+        f'\t\t(property "Footprint" {_escape(footprint_hint)}',
         "\t\t\t(at 0 -5.08 0)",
         "\t\t\t(effects (font (size 1.27 1.27)) (hide yes))",
         "\t\t)",
-        f"\t\t(property \"Datasheet\" {_escape(datasheet)}",
+        f'\t\t(property "Datasheet" {_escape(datasheet)}',
         "\t\t\t(at 0 -7.62 0)",
         "\t\t\t(effects (font (size 1.27 1.27)) (hide yes))",
         "\t\t)",
-        f"\t\t(property \"Description\" {_escape(description)}",
+        f'\t\t(property "Description" {_escape(description)}',
         "\t\t\t(at 0 -10.16 0)",
         "\t\t\t(effects (font (size 1.27 1.27)) (hide yes))",
         "\t\t)",
@@ -218,5 +218,5 @@ def generate_symbol(
         lines.append("\t\t)")
 
     lines.append("\t)")  # close symbol
-    lines.append(")")   # close kicad_symbol_lib
+    lines.append(")")  # close kicad_symbol_lib
     return "\n".join(lines)

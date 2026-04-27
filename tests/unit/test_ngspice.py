@@ -30,9 +30,7 @@ def test_prepare_spice_netlist_injects_directives_before_end(tmp_path: Path) -> 
 def test_parse_wrdata_table_reads_headered_rows(tmp_path: Path) -> None:
     data = tmp_path / "ac.data"
     data.write_text(
-        "frequency vm(out) vp(out)\n"
-        "10 2 -90\n"
-        "100 1 -135\n",
+        "frequency vm(out) vp(out)\n10 2 -90\n100 1 -135\n",
         encoding="utf-8",
     )
 
@@ -182,9 +180,7 @@ def test_ngspice_runner_cli_fallback_parses_transient_output(
         log_path = deck_path.with_suffix(".log")
         raw_path = deck_path.with_suffix(".raw")
         data_path.write_text(
-            "time v(out)\n"
-            "0 0\n"
-            "1e-3 4.5\n",
+            "time v(out)\n0 0\n1e-3 4.5\n",
             encoding="utf-8",
         )
         log_path.write_text("ngspice ok\n", encoding="utf-8")

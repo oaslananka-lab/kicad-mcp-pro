@@ -57,6 +57,7 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "project_get_design_spec",
             "project_infer_design_spec",
             "project_validate_design_spec",
+            "project_generate_design_prompt",
             "project_get_next_action",
             "project_auto_fix_loop",
             "project_full_validation_loop",
@@ -273,6 +274,9 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
             "manufacturing_quality_gate",
             "project_quality_gate",
             "project_quality_gate_report",
+            "run_drc",
+            "run_erc",
+            "validate_design",
             "check_design_for_manufacture",
             "get_unconnected_nets",
             "get_courtyard_violations",
@@ -391,7 +395,12 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
     "schematic_only": ("project", "schematic", "library"),
     "pcb_only": ("project", "pcb_read", "pcb_write", "routing"),
     "manufacturing": (
-        "project", "pcb_read", "release_export", "validation", "dfm", "manufacturing"
+        "project",
+        "pcb_read",
+        "release_export",
+        "validation",
+        "dfm",
+        "manufacturing",
     ),
     "builder": (
         "project",

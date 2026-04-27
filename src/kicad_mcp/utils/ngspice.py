@@ -151,10 +151,7 @@ def _as_real_list(values: object) -> list[float]:
         if array.ndim == 0:
             item = array.item()
             return [float(item.real if isinstance(item, complex) else item)]
-        return [
-            float(item.real if isinstance(item, complex) else item)
-            for item in array.tolist()
-        ]
+        return [float(item.real if isinstance(item, complex) else item) for item in array.tolist()]
     if isinstance(values, (int, float)):
         return [float(values)]
     if isinstance(values, list):
@@ -388,11 +385,13 @@ class NgspiceRunner:
             )
         elif analysis == "dc":
             analysis_obj = simulation.dc(
-                **{str(kwargs["source_ref"]): slice(
-                    float(kwargs["start_v"]),
-                    float(kwargs["stop_v"]),
-                    float(kwargs["step_v"]),
-                )},
+                **{
+                    str(kwargs["source_ref"]): slice(
+                        float(kwargs["start_v"]),
+                        float(kwargs["stop_v"]),
+                        float(kwargs["step_v"]),
+                    )
+                },
                 **call_kwargs,
             )
         else:

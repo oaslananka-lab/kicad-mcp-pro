@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -89,6 +89,7 @@ class KiCadMCPConfig(BaseSettings):
     cli_timeout: float = Field(default=120.0, gt=0.1, le=600.0)
     max_items_per_response: int = Field(default=200, ge=1, le=2000)
     max_text_response_chars: int = Field(default=50000, ge=1000, le=500000)
+    _project_dir_explicit: bool = PrivateAttr(default=False)
 
     @classmethod
     def settings_customise_sources(
@@ -182,6 +183,9 @@ class KiCadMCPConfig(BaseSettings):
     @model_validator(mode="after")
     def resolve_paths(self) -> KiCadMCPConfig:
         """Resolve project-relative defaults."""
+        self._project_dir_explicit = self.project_dir is not None and (
+            "project_dir" in self.model_fields_set
+        )
         self._refresh_paths()
         return self
 
@@ -255,6 +259,7 @@ class KiCadMCPConfig(BaseSettings):
         pcb_file: Path | None = None,
         sch_file: Path | None = None,
         output_dir: Path | None = None,
+        explicit: bool = True,
     ) -> None:
         """Mutate the active project settings."""
         self.project_dir = project_dir.resolve()
@@ -262,12 +267,18 @@ class KiCadMCPConfig(BaseSettings):
         self.pcb_file = pcb_file.resolve() if pcb_file else None
         self.sch_file = sch_file.resolve() if sch_file else None
         self.output_dir = output_dir.resolve() if output_dir else self.project_dir / "output"
+        self._project_dir_explicit = explicit
         self._refresh_paths()
 
     @property
     def cors_origin_list(self) -> list[str]:
         """Return configured CORS origins as a normalized list."""
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+
+    @property
+    def project_dir_is_explicit(self) -> bool:
+        """Return True when the active project came from explicit user configuration."""
+        return self._project_dir_explicit
 
 
 _config_lock = threading.Lock()

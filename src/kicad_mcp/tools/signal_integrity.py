@@ -63,13 +63,12 @@ def _write_nc_rule(
     ]
     if diff_gap_mm is not None:
         constraints.append(
-            f"  (constraint diff_pair_gap (min {_mm(diff_gap_mm)}) "
-            f"(opt {_mm(diff_gap_mm)}))"
+            f"  (constraint diff_pair_gap (min {_mm(diff_gap_mm)}) (opt {_mm(diff_gap_mm)}))"
         )
     body = "\n".join(
         [
             f"(rule {_sexpr_string(name)}",
-            f'  (condition "A.NetClass == \'{net_class}\'")',
+            f"  (condition \"A.NetClass == '{net_class}'\")",
             *constraints,
             ")",
         ]
@@ -754,10 +753,7 @@ def register(mcp: FastMCP) -> None:
         materials = list_dielectric_materials()
         lines = [f"Available dielectric materials ({len(materials)} total):", ""]
         for m in materials:
-            lines.append(
-                f"  [{m['key']}] {m['name']}"
-                f"  Er={m['er']}  tan_d={m['loss_tangent']}"
-            )
+            lines.append(f"  [{m['key']}] {m['name']}  Er={m['er']}  tan_d={m['loss_tangent']}")
             lines.append(f"    {m['description']}")
             lines.append("")
         lines.append("Use key string with si_synthesize_stackup_for_interfaces().")
@@ -847,16 +843,35 @@ def register(mcp: FastMCP) -> None:
             max_freq_ghz = max(max_freq_ghz, freq)
             diff = bool(raw.get("differential", False))
             impedance = raw.get("impedance_target_ohm")
-            if diff or kind in {"usb2", "usb3", "usb3_gen2", "pcie_g1", "pcie_g2", "pcie_g3",
-                                "pcie_g4", "ethernet_1000", "ethernet_2500", "ethernet_10000",
-                                "hdmi_1x", "hdmi_2x", "displayport", "lvds", "sgmii"}:
+            if diff or kind in {
+                "usb2",
+                "usb3",
+                "usb3_gen2",
+                "pcie_g1",
+                "pcie_g2",
+                "pcie_g3",
+                "pcie_g4",
+                "ethernet_1000",
+                "ethernet_2500",
+                "ethernet_10000",
+                "hdmi_1x",
+                "hdmi_2x",
+                "displayport",
+                "lvds",
+                "sgmii",
+            }:
                 has_differential = True
             if freq >= 1.0:
                 has_highspeed = True
             iface_summaries.append(
                 f"  {kind}: {freq:.2f} GHz"
-                + (f", {impedance}ohm diff" if impedance and diff else
-                   f", {impedance}ohm SE" if impedance else "")
+                + (
+                    f", {impedance}ohm diff"
+                    if impedance and diff
+                    else f", {impedance}ohm SE"
+                    if impedance
+                    else ""
+                )
             )
 
         # Override material if frequency mandates it
@@ -919,8 +934,8 @@ def register(mcp: FastMCP) -> None:
             "|-----------|---------------|-----------------|--------------|",
             "| Default   | 0.20          | 0.20            | —            |",
             f"| 50R_SE    | 0.20          | {width_50ohm:.3f}         | —            |",
-            f"| 90R_DIFF  | 0.15          | {width_50ohm*0.8:.3f}     | {gap_90ohm:.3f}      |",
-            f"| 100R_DIFF | 0.15          | {width_50ohm*0.75:.3f}    |              |",
+            f"| 90R_DIFF  | 0.15          | {width_50ohm * 0.8:.3f}     | {gap_90ohm:.3f}      |",
+            f"| 100R_DIFF | 0.15          | {width_50ohm * 0.75:.3f}    |              |",
             "",
             "## Next Steps",
             "1. Call pcb_set_stackup() with layer_count and dielectric params above.",
@@ -951,25 +966,25 @@ def register(mcp: FastMCP) -> None:
             Net class plan or confirmation of changes applied.
         """
         net_class_templates: dict[str, dict[str, object]] = {
-            "usb2":            {"clearance": 0.15, "track_width": 0.20, "diff_gap": 0.20},
-            "usb3":            {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.15},
-            "usb3_gen2":       {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.12},
-            "pcie_g1":         {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.18},
-            "pcie_g2":         {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.15},
-            "pcie_g3":         {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.12},
-            "pcie_g4":         {"clearance": 0.08, "track_width": 0.12, "diff_gap": 0.10},
-            "ethernet_100":    {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.20},
-            "ethernet_1000":   {"clearance": 0.15, "track_width": 0.20, "diff_gap": 0.15},
-            "ethernet_2500":   {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.12},
-            "ethernet_10000":  {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.10},
-            "hdmi_1x":         {"clearance": 0.12, "track_width": 0.15, "diff_gap": 0.15},
-            "hdmi_2x":         {"clearance": 0.10, "track_width": 0.12, "diff_gap": 0.12},
-            "ddr3":            {"clearance": 0.12, "track_width": 0.15, "diff_gap": 0.15},
-            "ddr4":            {"clearance": 0.10, "track_width": 0.12, "diff_gap": 0.12},
-            "ddr5":            {"clearance": 0.08, "track_width": 0.10, "diff_gap": 0.10},
-            "lvds":            {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.15},
-            "can":             {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.25},
-            "canfd":           {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.25},
+            "usb2": {"clearance": 0.15, "track_width": 0.20, "diff_gap": 0.20},
+            "usb3": {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.15},
+            "usb3_gen2": {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.12},
+            "pcie_g1": {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.18},
+            "pcie_g2": {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.15},
+            "pcie_g3": {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.12},
+            "pcie_g4": {"clearance": 0.08, "track_width": 0.12, "diff_gap": 0.10},
+            "ethernet_100": {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.20},
+            "ethernet_1000": {"clearance": 0.15, "track_width": 0.20, "diff_gap": 0.15},
+            "ethernet_2500": {"clearance": 0.12, "track_width": 0.18, "diff_gap": 0.12},
+            "ethernet_10000": {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.10},
+            "hdmi_1x": {"clearance": 0.12, "track_width": 0.15, "diff_gap": 0.15},
+            "hdmi_2x": {"clearance": 0.10, "track_width": 0.12, "diff_gap": 0.12},
+            "ddr3": {"clearance": 0.12, "track_width": 0.15, "diff_gap": 0.15},
+            "ddr4": {"clearance": 0.10, "track_width": 0.12, "diff_gap": 0.12},
+            "ddr5": {"clearance": 0.08, "track_width": 0.10, "diff_gap": 0.10},
+            "lvds": {"clearance": 0.10, "track_width": 0.15, "diff_gap": 0.15},
+            "can": {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.25},
+            "canfd": {"clearance": 0.20, "track_width": 0.25, "diff_gap": 0.25},
         }
 
         plan: list[dict[str, object]] = []
@@ -1028,8 +1043,11 @@ def register(mcp: FastMCP) -> None:
                 nc = str(entry["net_class"])
                 cl = float(entry["clearance_mm"])  # type: ignore[arg-type]
                 tw = float(entry["track_width_mm"])  # type: ignore[arg-type]
-                dg = (float(entry["diff_pair_gap_mm"])  # type: ignore[arg-type]
-                      if entry.get("diff_pair_gap_mm") is not None else None)
+                dg = (
+                    float(entry["diff_pair_gap_mm"])  # type: ignore[arg-type]
+                    if entry.get("diff_pair_gap_mm") is not None
+                    else None
+                )
                 try:
                     rules_file = _write_nc_rule(nc, cl, tw, dg)
                     written.append(nc)
@@ -1037,9 +1055,7 @@ def register(mcp: FastMCP) -> None:
                     errors.append(f"{nc}: {exc}")
 
             if written:
-                lines.append(
-                    f"\n**Applied** {len(written)} net class rule(s) to `{rules_file}`:"
-                )
+                lines.append(f"\n**Applied** {len(written)} net class rule(s) to `{rules_file}`:")
                 for nc in written:
                     lines.append(f"  - {nc}")
             if errors:

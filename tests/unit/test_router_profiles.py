@@ -20,6 +20,9 @@ def test_available_profiles_include_v2_surface() -> None:
         "schematic_only",
         "pcb_only",
         "manufacturing",
+        "builder",
+        "critic",
+        "release_manager",
         "high_speed",
         "power",
         "simulation",
@@ -31,13 +34,33 @@ def test_available_profiles_include_v2_surface() -> None:
 
     assert expected.issubset(set(available_profiles()))
     assert categories_for_profile("analysis") == PROFILE_CATEGORIES["analysis"]
+    for agent_profile in ("builder", "critic", "release_manager"):
+        assert categories_for_profile(agent_profile) == PROFILE_CATEGORIES[agent_profile]
+        assert categories_for_profile(agent_profile)
     assert "simulation" in PROFILE_CATEGORIES["high_speed"]
     assert "version_control" in PROFILE_CATEGORIES["high_speed"]
     assert categories_for_profile("agent_full") == PROFILE_CATEGORIES["agent_full"]
     assert categories_for_profile("unknown-profile") == PROFILE_CATEGORIES["full"]
 
 
+def test_validation_cli_tools_are_declared_for_discovery() -> None:
+    declared = {
+        tool_name for category in TOOL_CATEGORIES.values() for tool_name in category["tools"]
+    }
+
+    assert {"run_drc", "run_erc", "validate_design"}.issubset(declared)
+
+
 def test_create_server_sync_wrapper_materializes_tool_list() -> None:
+    server = create_server("full")
+    tools = server.list_tools()
+
+    assert isinstance(tools, list)
+    assert any(tool.name == "kicad_get_version" for tool in tools)
+
+
+@pytest.mark.anyio
+async def test_create_server_sync_wrapper_materializes_tool_list_inside_event_loop() -> None:
     server = create_server("full")
     tools = server.list_tools()
 

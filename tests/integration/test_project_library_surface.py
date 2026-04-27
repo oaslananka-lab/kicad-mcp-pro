@@ -430,7 +430,7 @@ async def test_lib_create_custom_symbol_escapes_sexpr_strings(sample_project: Pa
     assert "Created custom symbol" in text
     assert consumed > 0
     assert '\n\t(symbol "Injected"' not in content
-    assert '\n\t(pin output line' not in block
+    assert "\n\t(pin output line" not in block
     assert _sexpr_string(pin_name) in block
 
 

@@ -19,6 +19,7 @@ from typing import NamedTuple
 # Data types
 # ---------------------------------------------------------------------------
 
+
 class Point(NamedTuple):
     x: float
     y: float
@@ -38,6 +39,7 @@ class PlacementComponent:
 @dataclass
 class PlacementNet:
     """A net connects a set of component refs."""
+
     name: str
     refs: list[str] = field(default_factory=list)
     # weight controls spring stiffness (higher = pulled closer)
@@ -47,13 +49,13 @@ class PlacementNet:
 @dataclass
 class ForceDirectedConfig:
     iterations: int = 300
-    k_spring: float = 0.4      # spring attraction coefficient
-    k_repel: float = 80.0      # Coulomb repulsion coefficient
-    k_wall: float = 5.0        # boundary wall coefficient
-    damping: float = 0.85      # velocity damping per step
-    min_dist: float = 0.5      # minimum distance to avoid div/0
-    board_w: float = 100.0     # board width (mm) — soft boundary
-    board_h: float = 80.0      # board height (mm) — soft boundary
+    k_spring: float = 0.4  # spring attraction coefficient
+    k_repel: float = 80.0  # Coulomb repulsion coefficient
+    k_wall: float = 5.0  # boundary wall coefficient
+    damping: float = 0.85  # velocity damping per step
+    min_dist: float = 0.5  # minimum distance to avoid div/0
+    board_w: float = 100.0  # board width (mm) — soft boundary
+    board_h: float = 80.0  # board height (mm) — soft boundary
     seed: int = 42
     grid_mm: float = 0.5
     max_seconds: float = 10.0
@@ -63,6 +65,7 @@ class ForceDirectedConfig:
 # ---------------------------------------------------------------------------
 # Core algorithm
 # ---------------------------------------------------------------------------
+
 
 def _centroid(comps: list[PlacementComponent], refs: list[str]) -> Point:
     xs = [c.x for c in comps if c.ref in refs]
@@ -298,10 +301,11 @@ def force_directed_placement(
 # BGA fanout geometry helpers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class BGABall:
-    row: str      # A, B, C … (IPC row letter)
-    col: int      # 1-based column index
+    row: str  # A, B, C … (IPC row letter)
+    col: int  # 1-based column index
     net: str
     x_mm: float = 0.0
     y_mm: float = 0.0
@@ -357,19 +361,21 @@ def generate_bga_fanout_plan(
             vx = bx + dx * pitch_mm
             vy = by
 
-        vias.append({
-            "ref": f"{ball.row}{ball.col}",
-            "net": ball.net,
-            "ball_x": round(bx, 4),
-            "ball_y": round(by, 4),
-            "via_x": round(vx, 4),
-            "via_y": round(vy, 4),
-            "via_drill_mm": via_drill_mm,
-            "via_annular_mm": via_annular_mm,
-            "escape_layer": escape_layer,
-            "track_width_mm": track_w,
-            "dog_ear_dx": round(dx if strategy == "dog_ear" else 0.0, 4),
-            "dog_ear_dy": round(dy if strategy == "dog_ear" else 0.0, 4),
-        })
+        vias.append(
+            {
+                "ref": f"{ball.row}{ball.col}",
+                "net": ball.net,
+                "ball_x": round(bx, 4),
+                "ball_y": round(by, 4),
+                "via_x": round(vx, 4),
+                "via_y": round(vy, 4),
+                "via_drill_mm": via_drill_mm,
+                "via_annular_mm": via_annular_mm,
+                "escape_layer": escape_layer,
+                "track_width_mm": track_w,
+                "dog_ear_dx": round(dx if strategy == "dog_ear" else 0.0, 4),
+                "dog_ear_dy": round(dy if strategy == "dog_ear" else 0.0, 4),
+            }
+        )
 
     return vias

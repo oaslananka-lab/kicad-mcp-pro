@@ -57,9 +57,7 @@ def _render_fix_queue() -> str:
 
     outcomes = _evaluate_project_gate()
     actionable = [
-        (index, outcome)
-        for index, outcome in enumerate(outcomes)
-        if outcome.status != "PASS"
+        (index, outcome) for index, outcome in enumerate(outcomes) if outcome.status != "PASS"
     ]
     if not actionable:
         return "\n".join(

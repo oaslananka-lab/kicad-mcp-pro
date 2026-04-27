@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from mcp.server.fastmcp.exceptions import ToolError
 
 from kicad_mcp.server import build_server
 from kicad_mcp.utils.ngspice import SimulationResult, SimulationTrace
@@ -31,12 +30,12 @@ async def test_simulation_tool_surface_and_directive_storage(sample_project: Pat
     assert directive_file.exists()
     assert ".param gain=10" in directive_file.read_text(encoding="utf-8")
 
-    with pytest.raises(ToolError, match="Unsupported SPICE directive prefix"):
-        await call_tool_text(
-            server,
-            "sim_add_spice_directive",
-            {"directive": "R1 out 0 1k"},
-        )
+    directive_error = await call_tool_text(
+        server,
+        "sim_add_spice_directive",
+        {"directive": "R1 out 0 1k"},
+    )
+    assert "Unsupported SPICE directive prefix" in directive_error
 
 
 @pytest.mark.anyio

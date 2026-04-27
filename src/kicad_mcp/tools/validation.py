@@ -678,8 +678,7 @@ def _evaluate_schematic_connectivity_gate() -> GateOutcome:
             name="Schematic connectivity",
             status="FAIL",
             summary=(
-                "Connectivity smells suggest the schematic is not ready for PCB or "
-                "release work."
+                "Connectivity smells suggest the schematic is not ready for PCB or release work."
             ),
             details=details,
         )
@@ -1010,9 +1009,7 @@ def _placement_analysis() -> tuple[PlacementAnalysis | None, GateOutcome | None]
                 region.h_mm,
                 0.0,
             ):
-                keepout_violations.append(
-                    f"{reference} overlaps RF keepout '{region.name}'."
-                )
+                keepout_violations.append(f"{reference} overlaps RF keepout '{region.name}'.")
 
     checked_power_tree_refs = 0
     present_power_tree: list[str] = []
@@ -1193,8 +1190,7 @@ def _placement_analysis() -> tuple[PlacementAnalysis | None, GateOutcome | None]
             thermal_proximity_sum += 1.0 / distance
     if thermal_hotspot_refs and thermal_proximity_sum > max(len(thermal_hotspot_refs) - 1, 1) * 0.2:
         warnings.append(
-            "Thermal hotspots are clustered tightly "
-            f"(proximity sum {thermal_proximity_sum:.3f})."
+            f"Thermal hotspots are clustered tightly (proximity sum {thermal_proximity_sum:.3f})."
         )
 
     hard_failures: list[str] = []
@@ -1265,8 +1261,7 @@ def _format_placement_score(analysis: PlacementAnalysis) -> str:
         f"- Digital refs checked: {analysis.checked_digital_refs}",
         f"- Sensor-cluster refs checked: {analysis.checked_sensor_cluster_refs}",
         f"- Critical-net Manhattan proxy: {analysis.critical_net_proxy_mm:.2f} mm",
-        "- Critical-net proxy density: "
-        f"{analysis.critical_net_proxy_density:.2f} mm per 1000 mm^2",
+        f"- Critical-net proxy density: {analysis.critical_net_proxy_density:.2f} mm per 1000 mm^2",
         f"- Thermal hotspot refs checked: {analysis.checked_thermal_hotspot_refs}",
         f"- Thermal hotspot proximity: {analysis.thermal_proximity_sum:.4f}",
         f"- Hard failures: {len(analysis.hard_failures)}",
@@ -1297,8 +1292,7 @@ def _evaluate_pcb_placement_gate() -> GateOutcome:
         f"Digital refs checked: {analysis.checked_digital_refs}",
         f"Sensor-cluster refs checked: {analysis.checked_sensor_cluster_refs}",
         f"Critical-net Manhattan proxy: {analysis.critical_net_proxy_mm:.2f} mm",
-        "Critical-net proxy density: "
-        f"{analysis.critical_net_proxy_density:.2f} mm per 1000 mm^2",
+        f"Critical-net proxy density: {analysis.critical_net_proxy_density:.2f} mm per 1000 mm^2",
         f"Thermal hotspot refs checked: {analysis.checked_thermal_hotspot_refs}",
         f"Thermal hotspot proximity: {analysis.thermal_proximity_sum:.4f}",
         f"Placement score: {analysis.score}/100",
@@ -1419,13 +1413,10 @@ def _project_gate_report_payload(
 ) -> ProjectGateReportPayload:
     text = _render_project_gate_report(outcomes, summary=summary)
     status = _combined_status(outcomes)
-    headline = (
-        summary
-        or (
-            "This project is ready for the next stage."
-            if status == "PASS"
-            else "Blocking issues remain. Do not treat this design as production-ready yet."
-        )
+    headline = summary or (
+        "This project is ready for the next stage."
+        if status == "PASS"
+        else "Blocking issues remain. Do not treat this design as production-ready yet."
     )
     return ProjectGateReportPayload(
         text=text,
@@ -1492,9 +1483,7 @@ def render_gate_by_name(
     if normalized in {"transfer", "pcb_transfer", "pcb_transfer_quality_gate"}:
         return _format_gate(_evaluate_pcb_transfer_gate())
     if normalized in {"manufacturing", "manufacturing_quality_gate"}:
-        return _format_gate(
-            _evaluate_manufacturing_gate(manufacturer=manufacturer, tier=tier)
-        )
+        return _format_gate(_evaluate_manufacturing_gate(manufacturer=manufacturer, tier=tier))
     if normalized in {"footprint_parity", "parity"}:
         return _format_gate(_footprint_parity_outcome())
     raise ValueError(
@@ -1532,9 +1521,7 @@ def _rule_child_nodes(
     child_name: str,
 ) -> list[SExprNode]:
     return [
-        child
-        for child in rule[2:]
-        if isinstance(child, list) and child and child[0] == child_name
+        child for child in rule[2:] if isinstance(child, list) and child and child[0] == child_name
     ]
 
 

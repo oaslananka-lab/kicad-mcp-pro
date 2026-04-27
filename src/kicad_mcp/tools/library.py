@@ -621,11 +621,7 @@ def register(mcp: FastMCP) -> None:
             for item in candidates
             if item.lcsc_code != base_part.lcsc_code
             and item.stock > 0
-            and (
-                max_price is None
-                or item.price is None
-                or item.price <= max_price
-            )
+            and (max_price is None or item.price is None or item.price <= max_price)
         ]
         ordered = _sort_component_results(alternatives, sort_by="price")
         return _format_component_lines(
@@ -964,9 +960,7 @@ def register(mcp: FastMCP) -> None:
                 lines.append(f"- Footprint hint: {part.package} (assigned to symbol)")
             else:
                 error_suffix = (
-                    f" (automatic assignment failed: {fp_assign_error})"
-                    if fp_assign_error
-                    else ""
+                    f" (automatic assignment failed: {fp_assign_error})" if fp_assign_error else ""
                 )
                 lines.append(
                     f"- Footprint hint: {part.package} — "

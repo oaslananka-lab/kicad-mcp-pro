@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import warnings
 from pathlib import Path
 from typing import Any, cast
 
@@ -66,11 +67,7 @@ def _current_track_length_for_pattern_mm(net_pattern: str) -> float:
     if "*" not in net_pattern:
         return _current_track_length_mm(net_pattern)
     regex = re.compile("^" + re.escape(net_pattern).replace(r"\*", ".*") + "$")
-    matching_names = [
-        name
-        for name in _list_board_net_names()
-        if regex.fullmatch(name) is not None
-    ]
+    matching_names = [name for name in _list_board_net_names() if regex.fullmatch(name) is not None]
     return sum(_current_track_length_mm(name) for name in matching_names)
 
 
@@ -144,7 +141,7 @@ def _load_rules_content(path: Path) -> str:
 
 
 def _upsert_rule(content: str, rule_name: str, rule_body: str) -> str:
-    search = f'(rule {_sexpr_string(rule_name)}'
+    search = f"(rule {_sexpr_string(rule_name)}"
     index = content.find(search)
     if index >= 0:
         block, consumed = _extract_block(content, index)
@@ -198,8 +195,8 @@ def _net_class_rule_body(
     name = f"Net class {net_class}"
     body = "\n".join(
         [
-            f'(rule {_sexpr_string(name)}',
-            f'  (condition "A.NetClass == \'{net_class}\'")',
+            f"(rule {_sexpr_string(name)}",
+            f"  (condition \"A.NetClass == '{net_class}'\")",
             track_width_constraint,
             f"  (constraint clearance (min {_mm(clearance_mm)}))",
             via_diameter_constraint,
@@ -228,13 +225,12 @@ def _diff_pair_rule_body(
         f"(opt {_mm(width_mm)}) (max {_mm(width_mm)}))"
     )
     gap_constraint = (
-        f"  (constraint diff_pair_gap (min {_mm(gap_mm)}) "
-        f"(opt {_mm(gap_mm)}) (max {_mm(gap_mm)}))"
+        f"  (constraint diff_pair_gap (min {_mm(gap_mm)}) (opt {_mm(gap_mm)}) (max {_mm(gap_mm)}))"
     )
     name = f"Differential pair {net_p} {net_n}"
     body = "\n".join(
         [
-            f'(rule {_sexpr_string(name)}',
+            f"(rule {_sexpr_string(name)}",
             f'  (condition "{condition}")',
             track_width_constraint,
             gap_constraint,
@@ -249,8 +245,8 @@ def _length_tune_rule_body(net_name: str, target_mm: float, tolerance_mm: float)
     name = f"Length tune {net_name}"
     body = "\n".join(
         [
-            f'(rule {_sexpr_string(name)}',
-            f'  (condition "A.NetName == \'{net_name}\'")',
+            f"(rule {_sexpr_string(name)}",
+            f"  (condition \"A.NetName == '{net_name}'\")",
             f"  (constraint length (min {_mm(max(target_mm - tolerance_mm, 0.0))}) "
             f"(opt {_mm(target_mm)}) (max {_mm(target_mm + tolerance_mm)}))",
             ")",
@@ -271,8 +267,8 @@ def _diff_pair_length_rule_body(
     pair_rule_name = f"Length match {net_name_p} {net_name_n}"
     pair_rule_body = "\n".join(
         [
-            f'(rule {_sexpr_string(pair_rule_name)}',
-            f'  (condition "A.NetName == \'{net_name_p}\' || A.NetName == \'{net_name_n}\'")',
+            f"(rule {_sexpr_string(pair_rule_name)}",
+            f"  (condition \"A.NetName == '{net_name_p}' || A.NetName == '{net_name_n}'\")",
             "  (constraint skew (max 0.1000mm))",
             ")",
         ]
@@ -293,8 +289,7 @@ def _routing_state_dir() -> Path:
     cfg = get_config()
     if cfg.project_dir is None:
         raise ValueError(
-            "No active project directory is configured. "
-            "Call kicad_set_project() first."
+            "No active project directory is configured. Call kicad_set_project() first."
         )
     target = cfg.project_dir / _STATE_DIRNAME
     target.mkdir(parents=True, exist_ok=True)
@@ -527,10 +522,7 @@ def register(mcp: FastMCP) -> None:
         ses_path_obj = Path(ses_output) if ses_output else None
         if ses_path_obj is None:
             return "FreeRouting autoroute failed: no SES output path was reported."
-        ses_ok = (
-            ses_path_obj.exists()
-            and ses_path_obj.stat().st_size > 0
-        )
+        ses_ok = ses_path_obj.exists() and ses_path_obj.stat().st_size > 0
         if not ses_ok:
             return (
                 "FreeRouting ran but the SES session file is missing or empty — "
@@ -728,7 +720,8 @@ def register(mcp: FastMCP) -> None:
         if layer:
             matching = next(
                 (
-                    item for item in profiles.values()
+                    item
+                    for item in profiles.values()
                     if str(item.get("layer", "")).casefold() == layer.casefold()
                 ),
                 None,
@@ -782,7 +775,7 @@ def register(mcp: FastMCP) -> None:
         condition = _net_pattern_condition(net_or_group)
         rule_body = "\n".join(
             [
-                f'(rule {_sexpr_string(rule_name)}',
+                f"(rule {_sexpr_string(rule_name)}",
                 f'  (condition "{condition}")',
                 f"  (constraint length (min {_mm(max(target_mm - tolerance_mm, 0.0))}) "
                 f"(opt {_mm(target_mm)}) (max {_mm(target_mm + tolerance_mm)}))",
@@ -817,6 +810,11 @@ def register(mcp: FastMCP) -> None:
     def tune_track_length(net_name: str, target_length_mm: float) -> str:
         """Backward-compatible alias for route_tune_length()."""
         logger.warning("deprecated_tune_track_length", replacement="route_tune_length")
+        warnings.warn(
+            "tune_track_length() is deprecated; use route_tune_length() instead.",
+            UserWarning,
+            stacklevel=2,
+        )
         return str(route_tune_length(net_name, target_length_mm))
 
     @mcp.tool()

@@ -18,4 +18,3 @@ def test_design_intent_round_trips_extended_fields() -> None:
     assert restored.critical_nets == ["USB_D+"]
     assert restored.decoupling_pairs[0].ic_ref == "U1"
     assert restored.manufacturer == "JLCPCB"
-

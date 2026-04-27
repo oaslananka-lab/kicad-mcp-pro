@@ -22,11 +22,11 @@ async def test_dfm_profile_load_run_and_cost(
         "\n".join(
             [
                 "(kicad_pcb",
-                '\t(version 20250216)',
+                "\t(version 20250216)",
                 '\t(generator "pytest")',
                 (
-                    '\t(gr_rect (start 0 0) (end 50 40) '
-                    '(stroke (width 0.05) (type solid)) '
+                    "\t(gr_rect (start 0 0) (end 50 40) "
+                    "(stroke (width 0.05) (type solid)) "
                     '(fill no) (layer "Edge.Cuts"))'
                 ),
                 ")",

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from kicad_mcp.tools.fixers import (
     BLOCKING_GATES,
+    GATE_FIXERS,
+    FixerAction,
     auto_fix_description,
     first_agent_action,
     fixers_for_gate,
@@ -35,3 +37,36 @@ def test_sampling_prompt_for_gate_includes_trimmed_details() -> None:
     assert "- detail-0" in prompt
     assert "- detail-7" in prompt
     assert "detail-8" not in prompt
+
+
+def test_all_callable_imports_resolve() -> None:
+    from kicad_mcp.tools.fixers import validate_callable_imports
+
+    assert validate_callable_imports(GATE_FIXERS) == []
+
+
+def test_validate_callable_imports_logs_invalid_paths(monkeypatch) -> None:
+    from kicad_mcp.tools import fixers
+
+    warnings: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        fixers.logger,
+        "warning",
+        lambda event, **kwargs: warnings.append((event, kwargs)),
+    )
+
+    missing = fixers.validate_callable_imports(
+        {
+            "Bad gate": [
+                FixerAction(
+                    tool="bad_tool",
+                    description="Bad import path for startup validation.",
+                    auto_applicable=True,
+                    callable_import="tools.not_a_module:missing",
+                )
+            ]
+        }
+    )
+
+    assert missing == ["Bad gate: tools.not_a_module:missing"]
+    assert warnings[0][0] == "fixer_callable_import_invalid"

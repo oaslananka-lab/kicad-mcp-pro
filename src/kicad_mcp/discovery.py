@@ -338,6 +338,7 @@ def auto_set_project_from_file(active_file: str | Path) -> Path | None:
         pcb_file=scan.get("pcb"),
         sch_file=scan.get("schematic"),
         output_dir=project_dir.resolve() / "output",
+        explicit=False,
     )
     reset_connection()
     logger.info("studio_project_auto_detected", project_dir=str(project_dir))
@@ -369,7 +370,17 @@ def poll_studio_watch_dir(
 
     if latest_changed is not None:
         try:
-            auto_set_project_from_file(latest_changed)
+            from .config import get_config
+
+            cfg = get_config()
+            if cfg.project_dir_is_explicit:
+                logger.info(
+                    "studio_watch_project_detected_without_override",
+                    path=str(latest_changed),
+                    active_project_dir=str(cfg.project_dir),
+                )
+            else:
+                auto_set_project_from_file(latest_changed)
         except Exception as exc:
             logger.warning(
                 "studio_watch_auto_detect_failed",

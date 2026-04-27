@@ -87,9 +87,9 @@ def _set_non_target_gates_to_pass(
             continue
         monkeypatch.setattr(
             f"kicad_mcp.tools.validation.{attribute}",
-            (lambda gate_outcome: (lambda **_kwargs: gate_outcome))(outcome)
+            (lambda gate_outcome: lambda **_kwargs: gate_outcome)(outcome)
             if attribute == "_evaluate_manufacturing_gate"
-            else (lambda gate_outcome: (lambda: gate_outcome))(outcome),
+            else (lambda gate_outcome: lambda: gate_outcome)(outcome),
         )
 
 

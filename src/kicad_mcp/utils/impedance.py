@@ -103,9 +103,7 @@ def get_dielectric(key: str) -> DielectricEntry:
     entry = DIELECTRIC_LIBRARY.get(key.lower())
     if entry is None:
         available = ", ".join(sorted(DIELECTRIC_LIBRARY))
-        raise ValueError(
-            f"Unknown dielectric '{key}'. Available materials: {available}"
-        )
+        raise ValueError(f"Unknown dielectric '{key}'. Available materials: {available}")
     return entry
 
 
@@ -122,6 +120,7 @@ def recommend_dielectric_for_frequency(freq_ghz: float) -> str:
     if freq_ghz <= 40.0:
         return "ro4003c"
     return "ptfe"
+
 
 _C_METERS_PER_SECOND = 299_792_458.0
 
@@ -156,9 +155,7 @@ def _microstrip_effective_width(width_mm: float, height_mm: float, copper_oz: fl
         return width_mm
 
     thickness_ratio = max(thickness_mm / max(height_mm, 1e-9), 1e-9)
-    correction = (thickness_mm / math.pi) * (
-        1.0 + math.log(4.0 * math.e / thickness_ratio)
-    )
+    correction = (thickness_mm / math.pi) * (1.0 + math.log(4.0 * math.e / thickness_ratio))
     return width_mm + max(correction, 0.0)
 
 

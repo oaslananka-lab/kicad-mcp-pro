@@ -147,10 +147,7 @@ def test_register_resources_exposes_success_paths(monkeypatch, tmp_path: Path) -
     assert mcp.resources["kicad://project/quality_gate"]() == "gate-count:1"
     assert '"history"' in mcp.resources["kicad://project/gate_history"]()
     assert mcp.resources["kicad://project/fix_queue"]() == "queue-body"
-    assert (
-        mcp.resources["kicad://schematic/connectivity"]()
-        == "Schematic connectivity:PASS"
-    )
+    assert mcp.resources["kicad://schematic/connectivity"]() == "Schematic connectivity:PASS"
     assert '"layers"' in mcp.resources["kicad://board/layer_coverage"]()
     assert mcp.resources["kicad://gate/{gate_name}"]("PCB") == "gate:PCB"
     assert mcp.resources["kicad://board/placement_quality"]() == "placement:92"
@@ -211,7 +208,9 @@ def test_register_resources_exposes_blocked_paths(monkeypatch, tmp_path: Path) -
     assert "KiCad is not connected" in mcp.resources["kicad://board/netlist"]()
     assert "Project quality gate: BLOCKED" in mcp.resources["kicad://project/quality_gate"]()
     assert '"status": "blocked"' in mcp.resources["kicad://project/gate_history"]()
-    assert "Project fix queue\n- BLOCKED: queue failed" == mcp.resources["kicad://project/fix_queue"]()
+    assert (
+        "Project fix queue\n- BLOCKED: queue failed" == mcp.resources["kicad://project/fix_queue"]()
+    )
     assert (
         "Schematic connectivity quality gate: BLOCKED"
         in mcp.resources["kicad://schematic/connectivity"]()
@@ -241,6 +240,7 @@ def test_register_resources_exposes_blocked_paths(monkeypatch, tmp_path: Path) -
         "kicad_mcp.tools.validation._placement_analysis",
         lambda: (_ for _ in ()).throw(RuntimeError("placement failed")),
     )
-    assert "Could not evaluate this resource: placement failed" in mcp.resources[
-        "kicad://board/placement_quality"
-    ]()
+    assert (
+        "Could not evaluate this resource: placement failed"
+        in mcp.resources["kicad://board/placement_quality"]()
+    )

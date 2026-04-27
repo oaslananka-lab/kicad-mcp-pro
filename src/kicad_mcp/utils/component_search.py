@@ -168,9 +168,7 @@ class NexarClient:
     ) -> list[ComponentRecord]:
         _ = (package, only_basic, limit)
         if not self._client_id or not self._client_secret:
-            raise RuntimeError(
-                "Nexar search requires NEXAR_CLIENT_ID and NEXAR_CLIENT_SECRET."
-            )
+            raise RuntimeError("Nexar search requires NEXAR_CLIENT_ID and NEXAR_CLIENT_SECRET.")
         raise RuntimeError(
             "Nexar live search is reserved for authenticated deployments. "
             f"Use the zero-auth 'jlcsearch' source for local usage. Query was: {keyword}"

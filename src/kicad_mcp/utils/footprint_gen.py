@@ -53,7 +53,7 @@ def _fp_header(name: str, description: str, tags: str) -> list[str]:
         f"\t(layer {_sexpr_string(_LAYER_CU)})",
         f"\t(descr {_sexpr_string(description)})",
         f"\t(tags {_sexpr_string(tags)})",
-        '\t(attr smd)',
+        "\t(attr smd)",
     ]
 
 
@@ -83,18 +83,16 @@ def _pad_tht(num: int, x: float, y: float, drill: float, size: float) -> str:
     )
 
 
-def _ref_value(
-    ref_y: float, val_y: float, fab_y: float | None = None
-) -> list[str]:
+def _ref_value(ref_y: float, val_y: float, fab_y: float | None = None) -> list[str]:
     lines = [
-        f"\t(fp_text reference \"REF**\" (at 0 {ref_y:.4f})"
+        f'\t(fp_text reference "REF**" (at 0 {ref_y:.4f})'
         f" (layer {_LAYER_SILK}) (effects (font (size 1 1) (thickness 0.15))))",
-        f"\t(fp_text value \"VAL**\" (at 0 {val_y:.4f})"
+        f'\t(fp_text value "VAL**" (at 0 {val_y:.4f})'
         f" (layer {_LAYER_FAB}) (effects (font (size 1 1) (thickness 0.15))))",
     ]
     if fab_y is not None:
         lines.append(
-            f"\t(fp_text user \"${{REFERENCE}}\" (at 0 {fab_y:.4f})"
+            f'\t(fp_text user "${{REFERENCE}}" (at 0 {fab_y:.4f})'
             f" (layer {_LAYER_FAB}) (effects (font (size 0.8 0.8) (thickness 0.12))))"
         )
     return lines
@@ -131,7 +129,7 @@ def _rect_line(
 
 def _circle_line(layer: str, cx: float, cy: float, r: float, w: float = 0.1) -> str:
     return (
-        f"\t(fp_circle (center {cx:.4f} {cy:.4f}) (end {cx+r:.4f} {cy:.4f})"
+        f"\t(fp_circle (center {cx:.4f} {cy:.4f}) (end {cx + r:.4f} {cy:.4f})"
         f" (layer {layer}) (stroke (width {w})(type solid)))"
     )
 
@@ -190,6 +188,7 @@ def _chip_passive(size_code: str, density: DensityLevel = "B") -> str:
 # SOT-23 (3 leads)
 # ---------------------------------------------------------------------------
 
+
 def _sot23(density: DensityLevel = "B") -> str:
     """Generate SOT-23-3 (standard 3-lead SOT-23) footprint."""
     jt, _jh, js = _IPC_OFFSETS[density]
@@ -214,6 +213,7 @@ def _sot23(density: DensityLevel = "B") -> str:
 # SOIC / SOP / SSOP / TSSOP (dual-in-line SMD)
 # ---------------------------------------------------------------------------
 
+
 def _soic(
     pin_count: int,
     pitch_mm: float = 1.27,
@@ -225,7 +225,7 @@ def _soic(
     if pin_count % 2 != 0 or pin_count < 4 or pin_count > 64:
         raise ValueError("pin_count must be an even number between 4 and 64.")
     jt, _jh, js = _IPC_OFFSETS[density]
-    pad_h = 1.60 + jt   # along body axis (IPC nominal lead length ~1.6mm)
+    pad_h = 1.60 + jt  # along body axis (IPC nominal lead length ~1.6mm)
     pad_w = pitch_mm * 0.7 + 2 * js
     n_per_side = pin_count // 2
     span = (n_per_side - 1) * pitch_mm
@@ -245,8 +245,8 @@ def _soic(
     lines += _rect_line(_LAYER_FAB, -body_w_mm / 2, -bh / 2, body_w_mm / 2, bh / 2)
     # pin-1 marker
     lines.append(
-        f"\t(fp_circle (center {-body_w_mm/2 - 0.5:.4f} {-span/2:.4f})"
-        f" (end {-body_w_mm/2 - 0.3:.4f} {-span/2:.4f})"
+        f"\t(fp_circle (center {-body_w_mm / 2 - 0.5:.4f} {-span / 2:.4f})"
+        f" (end {-body_w_mm / 2 - 0.3:.4f} {-span / 2:.4f})"
         f" (layer {_LAYER_FAB}) (stroke (width 0.1)(type solid)))"
     )
     lines += _rect_line(_LAYER_CYARD, -cyard_x, -cyard_y, cyard_x, cyard_y, 0.05)
@@ -257,6 +257,7 @@ def _soic(
 # ---------------------------------------------------------------------------
 # QFP / LQFP / TQFP (quad, 4-sided)
 # ---------------------------------------------------------------------------
+
 
 def _qfp(
     pin_count: int,
@@ -280,9 +281,7 @@ def _qfp(
     y_centre = body_l_mm / 2 + 0.6 + pad_h / 2
     cyard = max(x_centre, y_centre) + pad_h / 2 + 0.25
     name = f"{family}-{pin_count}_{pitch_mm:.2f}mm_{body_l_mm:.0f}x{body_w:.0f}mm"
-    lines = _fp_header(
-        name, f"{family} {pin_count} leads {pitch_mm:.2f}mm pitch", family.lower()
-    )
+    lines = _fp_header(name, f"{family} {pin_count} leads {pitch_mm:.2f}mm pitch", family.lower())
     lines += _ref_value(-(cyard + 0.6), cyard + 0.6)
     # Bottom side (pins 1…n_per_side), going right-to-left
     for i in range(n_per_side):
@@ -304,9 +303,9 @@ def _qfp(
     lines += _rect_line(_LAYER_FAB, -body_w / 2, -body_l_mm / 2, body_w / 2, body_l_mm / 2)
     # Pin-1 corner notch
     lines.append(
-        f"\t(fp_arc (start {-body_w/2:.4f} {body_l_mm/2:.4f})"
-        f" (mid {-body_w/2 - 0.3:.4f} {body_l_mm/2 - 0.15:.4f})"
-        f" (end {-body_w/2 + 0.3:.4f} {body_l_mm/2:.4f})"
+        f"\t(fp_arc (start {-body_w / 2:.4f} {body_l_mm / 2:.4f})"
+        f" (mid {-body_w / 2 - 0.3:.4f} {body_l_mm / 2 - 0.15:.4f})"
+        f" (end {-body_w / 2 + 0.3:.4f} {body_l_mm / 2:.4f})"
         f" (layer {_LAYER_FAB}) (stroke (width 0.1)(type solid)))"
     )
     lines += _rect_line(_LAYER_CYARD, -cyard, -cyard, cyard, cyard, 0.05)
@@ -317,6 +316,7 @@ def _qfp(
 # ---------------------------------------------------------------------------
 # QFN / DFN (no-lead packages)
 # ---------------------------------------------------------------------------
+
 
 def _qfn(
     pin_count: int,
@@ -378,6 +378,7 @@ def _qfn(
 # BGA
 # ---------------------------------------------------------------------------
 
+
 def _bga(
     rows: int,
     cols: int,
@@ -398,7 +399,7 @@ def _bga(
     total_w = (cols - 1) * pitch_mm
     total_h = (rows - 1) * pitch_mm
     cyard = max(total_w, total_h) / 2 + pitch_mm / 2 + 0.25
-    name = f"BGA-{rows*cols}_{rows}x{cols}_{pitch_mm:.2f}mm"
+    name = f"BGA-{rows * cols}_{rows}x{cols}_{pitch_mm:.2f}mm"
     lines = _fp_header(name, f"BGA {rows}×{cols} {pitch_mm:.2f}mm pitch", "bga")
     lines += _ref_value(-(cyard + 0.6), cyard + 0.6)
 
@@ -407,7 +408,7 @@ def _bga(
         for c in range(cols):
             x = -total_w / 2 + c * pitch_mm
             y = -total_h / 2 + r * pitch_mm
-            pad_name = f"{row_letter}{c+1}"
+            pad_name = f"{row_letter}{c + 1}"
             lines.append(
                 f"\t(pad {_sexpr_string(pad_name)} smd circle (at {x:.4f} {y:.4f})"
                 f" (size {pad_d:.4f} {pad_d:.4f})"

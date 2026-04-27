@@ -459,33 +459,32 @@ async def test_build_circuit_netlist_auto_layout_raises_when_no_wires_resolve(
 ) -> None:
     server = build_server("schematic")
 
-    with pytest.raises(Exception) as exc_info:
-        await server.call_tool(
-            "sch_build_circuit",
-            {
-                "auto_layout": True,
-                "symbols": [
-                    {
-                        "library": "Device",
-                        "symbol_name": "R",
-                        "reference": "R1",
-                        "value": "10k",
-                        "footprint": "Resistor_SMD:R_0805",
-                    }
-                ],
-                "nets": [
-                    {
-                        "name": "BROKEN_NET",
-                        "endpoints": [
-                            {"reference": "U9", "pin": "1"},
-                            {"reference": "U10", "pin": "2"},
-                        ],
-                    }
-                ],
-            },
-        )
+    error_text = await call_tool_text(
+        server,
+        "sch_build_circuit",
+        {
+            "auto_layout": True,
+            "symbols": [
+                {
+                    "library": "Device",
+                    "symbol_name": "R",
+                    "reference": "R1",
+                    "value": "10k",
+                    "footprint": "Resistor_SMD:R_0805",
+                }
+            ],
+            "nets": [
+                {
+                    "name": "BROKEN_NET",
+                    "endpoints": [
+                        {"reference": "U9", "pin": "1"},
+                        {"reference": "U10", "pin": "2"},
+                    ],
+                }
+            ],
+        },
+    )
 
-    error_text = str(exc_info.value)
     assert "could not generate any wire segments" in error_text
     assert "BROKEN_NET" in error_text
     assert "U9.1" in error_text
@@ -1524,65 +1523,54 @@ async def test_build_circuit_empty(sample_project, mock_kicad) -> None:
 @pytest.mark.anyio
 async def test_build_circuit_symbol_missing_fields_raises(sample_project, mock_kicad) -> None:
     """sch_build_circuit raises a clear ValidationError when required symbol fields are absent."""
-    from pydantic import ValidationError
-
     server = build_server("schematic")
-    with pytest.raises((ValidationError, Exception)) as exc_info:
-        await server.call_tool(
-            "sch_build_circuit",
-            {
-                "symbols": [{}],  # all required fields missing
-                "wires": [],
-                "labels": [],
-                "power_symbols": [],
-            },
-        )
+    error_text = await call_tool_text(
+        server,
+        "sch_build_circuit",
+        {
+            "symbols": [{}],  # all required fields missing
+            "wires": [],
+            "labels": [],
+            "power_symbols": [],
+        },
+    )
     # The error must mention the missing field names — not a bare KeyError
-    assert "library" in str(exc_info.value) or "symbol_name" in str(exc_info.value)
+    assert "library" in error_text or "symbol_name" in error_text
 
 
 @pytest.mark.anyio
 async def test_build_circuit_wire_missing_fields_raises(sample_project, mock_kicad) -> None:
     """Wire dicts without required coords raise a clear ValidationError."""
-    from pydantic import ValidationError
-
     server = build_server("schematic")
-    with pytest.raises((ValidationError, Exception)) as exc_info:
-        await server.call_tool(
-            "sch_build_circuit",
-            {"symbols": [], "wires": [{}], "labels": [], "power_symbols": []},
-        )
-    error_text = str(exc_info.value)
+    error_text = await call_tool_text(
+        server,
+        "sch_build_circuit",
+        {"symbols": [], "wires": [{}], "labels": [], "power_symbols": []},
+    )
     assert any(field in error_text for field in ("x1_mm", "y1_mm", "x2_mm", "y2_mm"))
 
 
 @pytest.mark.anyio
 async def test_build_circuit_label_missing_fields_raises(sample_project, mock_kicad) -> None:
     """Label dicts without required fields raise a clear ValidationError."""
-    from pydantic import ValidationError
-
     server = build_server("schematic")
-    with pytest.raises((ValidationError, Exception)) as exc_info:
-        await server.call_tool(
-            "sch_build_circuit",
-            {"symbols": [], "wires": [], "labels": [{}], "power_symbols": []},
-        )
-    error_text = str(exc_info.value)
+    error_text = await call_tool_text(
+        server,
+        "sch_build_circuit",
+        {"symbols": [], "wires": [], "labels": [{}], "power_symbols": []},
+    )
     assert any(field in error_text for field in ("name", "x_mm", "y_mm"))
 
 
 @pytest.mark.anyio
 async def test_build_circuit_power_symbol_missing_fields_raises(sample_project, mock_kicad) -> None:
     """Power symbol dicts without required fields raise a clear ValidationError."""
-    from pydantic import ValidationError
-
     server = build_server("schematic")
-    with pytest.raises((ValidationError, Exception)) as exc_info:
-        await server.call_tool(
-            "sch_build_circuit",
-            {"symbols": [], "wires": [], "labels": [], "power_symbols": [{}]},
-        )
-    error_text = str(exc_info.value)
+    error_text = await call_tool_text(
+        server,
+        "sch_build_circuit",
+        {"symbols": [], "wires": [], "labels": [], "power_symbols": [{}]},
+    )
     assert any(field in error_text for field in ("name", "x", "y"))
 
 

@@ -37,3 +37,11 @@ jobs:
       - run: corepack npm ci
       - run: uv sync --all-extras --frozen --python ${{ matrix.python-version }}
       - run: corepack npm run check:ci
+      - name: Lint tool metadata
+        run: uv run python -m pytest tests/unit/test_tool_metadata_lint.py -q
+      - name: Check profile coverage
+        run: uv run python -m pytest tests/unit/test_router_profiles.py tests/unit/test_profile_matrix.py -q
+      - name: Validate callable imports
+        run: uv run python -m pytest tests/unit/test_fixers.py::test_all_callable_imports_resolve -q
+      - name: Benchmark latency gate
+        run: uv run python -m pytest tests/ -m benchmark -q

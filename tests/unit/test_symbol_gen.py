@@ -165,8 +165,9 @@ def test_single_pin_symbol() -> None:
 
 
 def test_large_pin_count() -> None:
-    pins = [PinSpec(i + 1, f"P{i}", "bidirectional", "left" if i < 64 else "right")
-            for i in range(128)]
+    pins = [
+        PinSpec(i + 1, f"P{i}", "bidirectional", "left" if i < 64 else "right") for i in range(128)
+    ]
     sym = generate_symbol("LARGE_IC", pins)
     assert _count_pins(sym) == 128
     assert _is_balanced(sym)

@@ -160,9 +160,7 @@ def _board_file_layer_name(layer_name: str) -> str:
 def _is_copper_stackup_layer(layer: StackupLayerSpec) -> bool:
     normalized_name = layer.name.replace(".", "_")
     material = layer.material.casefold()
-    return (
-        normalized_name in CANONICAL_LAYER_NAMES and normalized_name.endswith("_Cu")
-    ) or (
+    return (normalized_name in CANONICAL_LAYER_NAMES and normalized_name.endswith("_Cu")) or (
         material == "copper"
     )
 
@@ -191,9 +189,7 @@ def _replace_or_append_child_block(parent_block: str, keyword: str, child_block:
         existing, length = _extract_block(parent_block, match.start())
         if existing:
             return (
-                parent_block[: match.start()]
-                + replacement
-                + parent_block[match.start() + length :]
+                parent_block[: match.start()] + replacement + parent_block[match.start() + length :]
             )
 
     insert_at = parent_block.rfind(")")
@@ -338,11 +334,7 @@ def _total_stackup_thickness_mm(layers: list[StackupLayerSpec]) -> float:
 
 
 def _render_general_block(total_thickness_mm: float) -> str:
-    return (
-        "(general\n"
-        f"\t(thickness {total_thickness_mm:.4f})\n"
-        ")"
-    )
+    return f"(general\n\t(thickness {total_thickness_mm:.4f})\n)"
 
 
 def _render_stackup_layer_block(layer: StackupLayerSpec, order: int) -> str:
@@ -368,11 +360,7 @@ def _render_stackup_block(layers: list[StackupLayerSpec]) -> str:
     blocks = [_render_stackup_layer_block(layer, order) for order, layer in enumerate(layers)]
     rendered_layers = "\n".join(_indent_block(block, 1) for block in blocks)
     return (
-        "(stackup\n"
-        f"{rendered_layers}\n"
-        '\t(copper_finish "None")\n'
-        "\t(dielectric_constraints no)\n"
-        ")"
+        f'(stackup\n{rendered_layers}\n\t(copper_finish "None")\n\t(dielectric_constraints no)\n)'
     )
 
 
@@ -406,9 +394,7 @@ def _impedance_context_for_layer(
         available = ", ".join(layer.name for layer in specs)
         raise ValueError(f"Layer '{layer_name}' was not found in the current stackup: {available}")
 
-    copper_indices = [
-        index for index, layer in enumerate(specs) if _is_copper_stackup_layer(layer)
-    ]
+    copper_indices = [index for index, layer in enumerate(specs) if _is_copper_stackup_layer(layer)]
     target = specs[target_index]
     previous_dielectric = next(
         (
@@ -446,9 +432,8 @@ def _impedance_context_for_layer(
         er = dielectric.epsilon_r or 4.2
     else:
         trace_type = "stripline"
-        height_mm = (
-            sum(layer.thickness_mm for layer in adjacent_dielectrics)
-            / len(adjacent_dielectrics)
+        height_mm = sum(layer.thickness_mm for layer in adjacent_dielectrics) / len(
+            adjacent_dielectrics
         )
         er_values = [layer.epsilon_r or 4.2 for layer in adjacent_dielectrics]
         er = sum(er_values) / len(er_values)
@@ -1292,7 +1277,7 @@ def _save_pcb_state(filename: str, payload: dict[str, Any]) -> Path:
 
 def _footprint_layers_from_block(block: str) -> list[str]:
     layers = set(re.findall(r'\(layer\s+"([^"]+)"\)', block))
-    for match in re.findall(r'\(layers\s+([^)]+)\)', block):
+    for match in re.findall(r"\(layers\s+([^)]+)\)", block):
         layers.update(re.findall(r'"([^"]+)"', match))
     return sorted(layers)
 
@@ -1327,14 +1312,14 @@ def _inner_layer_graphic_block(
     layer_name = layer.replace("_", ".")
     if shape_type == "line":
         return (
-            f'\t(fp_line (start {x1_mm:.4f} {y1_mm:.4f}) (end {x2_mm:.4f} {y2_mm:.4f}) '
+            f"\t(fp_line (start {x1_mm:.4f} {y1_mm:.4f}) (end {x2_mm:.4f} {y2_mm:.4f}) "
             f'(stroke (width {stroke_width_mm:.4f}) (type solid)) (layer "{layer_name}") '
             f'(uuid "{uuid.uuid4()}"))'
         )
     if shape_type == "rect":
         return (
-            f'\t(fp_rect (start {x1_mm:.4f} {y1_mm:.4f}) (end {x2_mm:.4f} {y2_mm:.4f}) '
-            f'(stroke (width {stroke_width_mm:.4f}) (type solid)) (fill none) '
+            f"\t(fp_rect (start {x1_mm:.4f} {y1_mm:.4f}) (end {x2_mm:.4f} {y2_mm:.4f}) "
+            f"(stroke (width {stroke_width_mm:.4f}) (type solid)) (fill none) "
             f'(layer "{layer_name}") (uuid "{uuid.uuid4()}"))'
         )
     if shape_type == "text":
@@ -1997,9 +1982,7 @@ def register(mcp: FastMCP) -> None:
             if not left_net:
                 continue
             left_size = getattr(left_pad, "size", Vector2.from_xy_mm(1.0, 1.0))
-            left_radius_mm = (
-                nm_to_mm(max(_coord_nm(left_size, "x"), _coord_nm(left_size, "y"))) / 2
-            )
+            left_radius_mm = nm_to_mm(max(_coord_nm(left_size, "x"), _coord_nm(left_size, "y"))) / 2
             left_x_mm = nm_to_mm(_coord_nm(left_pad.position, "x"))
             left_y_mm = nm_to_mm(_coord_nm(left_pad.position, "y"))
             left_ref = str(left_pad.parent.reference_field.text.value)
@@ -2157,7 +2140,7 @@ def register(mcp: FastMCP) -> None:
             for rule_name, condition, constraints in rule_definitions:
                 rule_body = "\n".join(
                     [
-                        f'(rule {_sexpr_string(rule_name)}',
+                        f"(rule {_sexpr_string(rule_name)}",
                         f'  (condition "{condition}")',
                         *constraints,
                         ")",
@@ -2302,10 +2285,7 @@ def register(mcp: FastMCP) -> None:
             board.create_items([via])
         from_name = resolve_layer_name(payload.from_layer)
         to_name = resolve_layer_name(payload.to_layer)
-        return (
-            "Blind or buried via added successfully "
-            f"from {from_name} to {to_name}."
-        )
+        return f"Blind or buried via added successfully from {from_name} to {to_name}."
 
     @mcp.tool()
     def pcb_add_microvia(
@@ -2346,10 +2326,7 @@ def register(mcp: FastMCP) -> None:
             board.create_items([via])
         from_name = resolve_layer_name(payload.from_layer)
         to_name = resolve_layer_name(payload.to_layer)
-        return (
-            "Microvia added successfully "
-            f"from {from_name} to {to_name}."
-        )
+        return f"Microvia added successfully from {from_name} to {to_name}."
 
     @mcp.tool()
     def pcb_add_segment(
@@ -3283,9 +3260,7 @@ def register(mcp: FastMCP) -> None:
         zone.clearance = mm_to_nm(payload.clearance_mm)
         zone.min_thickness = mm_to_nm(payload.min_width_mm)
         zone.proto.copper_settings.connection.zone_connection = (
-            board_types_pb2.ZCS_THERMAL
-            if payload.thermal_relief
-            else board_types_pb2.ZCS_FULL
+            board_types_pb2.ZCS_THERMAL if payload.thermal_relief else board_types_pb2.ZCS_FULL
         )
         zone.proto.copper_settings.connection.thermal_spokes.gap.value_nm = mm_to_nm(
             payload.thermal_gap_mm
@@ -3805,8 +3780,7 @@ def register(mcp: FastMCP) -> None:
         )
         result = force_directed_placement(comps, placement_nets, cfg)
         output = [
-            {"ref": c.ref, "x": round(c.x, 4), "y": round(c.y, 4), "fixed": c.fixed}
-            for c in result
+            {"ref": c.ref, "x": round(c.x, 4), "y": round(c.y, 4), "fixed": c.fixed} for c in result
         ]
         return json.dumps(
             {
