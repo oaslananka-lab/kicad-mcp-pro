@@ -70,10 +70,10 @@ jobs:
           corepack npm run typecheck
           corepack npm run test:unit
       - name: Install Doppler CLI
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: dopplerhq/cli-action@4819d808ab99e5cde19a0637a16536a4038fad73
       - name: Load Codecov token from Doppler
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
@@ -83,7 +83,7 @@ jobs:
             echo "CODECOV_TOKEN=$token" >> "$GITHUB_ENV"
           fi
       - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         continue-on-error: true
         uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe
         with:
