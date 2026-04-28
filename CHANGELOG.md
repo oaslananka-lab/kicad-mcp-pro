@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0](https://github.com/oaslananka-lab/kicad-mcp-pro/compare/v3.0.2...v3.1.0) (2026-04-28)
+
+
+### Features
+
+* harden cli diagnostics and maintenance gates ([6b5c135](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/6b5c135696a3f353ec8d606a48ea6fb64931ba7d))
+
+
+### Bug Fixes
+
+* clean code scanning warnings ([0dbb9bf](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/0dbb9bfdbd98fe7ac37c415031a61e4d5522342d))
+* harden canonical mirror sync ([c357e47](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/c357e47bf6f148042f3b328aaf31abcfb02dda42))
+* make doppler secret verifier Windows-safe ([c615df7](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/c615df7e449f79cd97cdc7b634f15ca6d8ec0285))
+* quote label colors ([fff7812](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/fff7812658d142e6230642edc70230e64630d45d))
+* reduce code scanning noise ([3b8a05a](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/3b8a05ab8b300c5e8664a2c18448e0e50aaae698))
+* remove kicad session import cycle ([dcbfc92](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/dcbfc924bbb8e9b9d98074b6b29947189b858104))
+* skip canonical remote sentinel during sync ([2541641](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/2541641f0a8d76998efbb5eb4615d13f0220dffe))
+* stabilize code scanning cleanup ([97c30e3](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/97c30e34d933a1fc33e2b72580a1b48df18f6501))
+
 ## [Unreleased]
 
 ## [3.0.2] - 2026-04-27
