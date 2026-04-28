@@ -44,7 +44,7 @@ Current expected names:
 Usage:
 
 - `CODECOV_TOKEN`: optional coverage upload token.
-- `DOPPLER_GITHUB_SERVICE_TOKEN`: least-privilege GitHub service token for mirror/release synchronization only.
+- `DOPPLER_GITHUB_SERVICE_TOKEN`: least-privilege GitHub service token for mirror synchronization and release-please PR creation when organization policy blocks `GITHUB_TOKEN` from opening pull requests.
 - `PYPI_TOKEN` and `TEST_PYPI_TOKEN`: release workflow token source when Trusted Publishing is not configured. They may be synced from Doppler or configured as GitHub repository secrets.
 - `SAFETY_API_KEY`: optional authenticated Safety scan. It is not required for local default gates.
 
