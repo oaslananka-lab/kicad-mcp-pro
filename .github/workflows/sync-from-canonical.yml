@@ -90,7 +90,11 @@ jobs:
           git fetch canonical --prune --tags
 
           for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/canonical | sed 's|^canonical/||'); do
-            [ "$ref" = "HEAD" ] && continue
+            case "$ref" in
+              HEAD|canonical)
+                continue
+                ;;
+            esac
             if [ "$ref" = "main" ]; then
               git push origin "refs/remotes/canonical/${ref}:refs/heads/${ref}"
             else
