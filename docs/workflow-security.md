@@ -25,6 +25,11 @@ runs zizmor offline at high severity or above. Medium findings such as checkout
 credential persistence are still reviewed, but high findings block the local and
 CI gate.
 
+Trivy image scans use `ignore-unfixed: true`, matching the local
+`task security:local` policy. HIGH/CRITICAL vulnerabilities with available fixes
+still fail the gate; base-image advisories with no patched package stay visible
+in SARIF without blocking every PR.
+
 ## Pinning Updates
 
 When updating a pinned Action, resolve the new ref directly from GitHub, for

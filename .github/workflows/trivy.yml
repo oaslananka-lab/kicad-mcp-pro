@@ -41,6 +41,7 @@ jobs:
           output: trivy-base.sarif
           severity: HIGH,CRITICAL
           exit-code: "1"
+          ignore-unfixed: true
           version: v0.70.0
       - uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
         if: always()
@@ -77,6 +78,7 @@ jobs:
           output: trivy-kicad10.sarif
           severity: HIGH,CRITICAL
           exit-code: "1"
+          ignore-unfixed: true
           version: v0.70.0
       - uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
         if: always()
