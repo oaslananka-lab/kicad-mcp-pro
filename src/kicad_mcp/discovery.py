@@ -396,7 +396,6 @@ def ensure_studio_project_watcher(watch_dir: Path, poll_interval_seconds: float 
     global _WATCHER_THREAD, _WATCHER_ROOT
 
     resolved_root = watch_dir.expanduser().resolve()
-    stop_studio_project_watcher()
     with _WATCHER_LOCK:
         if (
             _WATCHER_THREAD is not None
@@ -404,6 +403,12 @@ def ensure_studio_project_watcher(watch_dir: Path, poll_interval_seconds: float 
             and _WATCHER_ROOT == resolved_root
         ):
             return
+
+        _WATCHER_STOP.set()
+        if _WATCHER_THREAD is not None and _WATCHER_THREAD.is_alive():
+            _WATCHER_THREAD.join(timeout=0.5)
+        _WATCHER_THREAD = None
+        _WATCHER_ROOT = None
 
         _WATCHER_STOP.clear()
         _WATCHER_ROOT = resolved_root

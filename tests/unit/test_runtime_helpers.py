@@ -7,8 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
-
 import kicad_mcp.connection as connection
 from kicad_mcp.discovery import (
     CliCapabilities,
@@ -320,11 +318,15 @@ def test_board_transaction_resets_connection_on_ipc_failure(monkeypatch) -> None
     monkeypatch.setattr("kicad_mcp.connection.get_board", lambda: sentinel)
     monkeypatch.setattr("kicad_mcp.connection.reset_connection", reset)
 
-    with pytest.raises(connection.KiCadConnectionError):
+    raised = False
+    try:
         with connection.board_transaction() as board:
             assert board is sentinel
             raise connection.KiCadConnectionError("boom")
+    except connection.KiCadConnectionError:
+        raised = True
 
+    assert raised
     reset.assert_called_once()
 
 
