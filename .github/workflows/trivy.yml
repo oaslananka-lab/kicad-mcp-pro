@@ -34,14 +34,30 @@ jobs:
           persist-credentials: false
       - name: Build image
         run: docker build -f Dockerfile -t kicad-mcp-pro:base .
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+      - name: Scan image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: kicad-mcp-pro:base
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          version: v0.70.0
+      - name: Generate SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: kicad-mcp-pro:base
           format: sarif
           output: trivy-base.sarif
+          scanners: vuln
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
+          vuln-type: os,library
+          limit-severities-for-sarif: true
           version: v0.70.0
       - uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
         if: always()
@@ -71,14 +87,30 @@ jobs:
             --build-arg KICAD_APPIMAGE_URL="${KICAD_APPIMAGE_URL}" \
             -f Dockerfile.kicad10 \
             -t kicad-mcp-pro:kicad10 .
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+      - name: Scan image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: kicad-mcp-pro:kicad10
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          version: v0.70.0
+      - name: Generate SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: kicad-mcp-pro:kicad10
           format: sarif
           output: trivy-kicad10.sarif
+          scanners: vuln
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
+          vuln-type: os,library
+          limit-severities-for-sarif: true
           version: v0.70.0
       - uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
         if: always()
