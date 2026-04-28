@@ -4,8 +4,11 @@ pr: none
 parameters:
   - name: publishToPackageIndex
     displayName: Publish package from Azure DevOps
-    type: boolean
-    default: false
+    type: string
+    default: "false"
+    values:
+      - "false"
+      - "true"
   - name: packageIndex
     displayName: Target package index
     type: string

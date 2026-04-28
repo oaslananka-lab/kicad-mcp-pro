@@ -7,7 +7,7 @@ name = "kicad-mcp-pro"
 version = "3.0.2"
 description = "A professional Model Context Protocol server for KiCad EDA."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 license-files = []
 authors = [{ name = "Osman Aslan" }]
 keywords = [
@@ -95,12 +95,7 @@ Funding = "https://github.com/sponsors/oaslananka"
 packages = ["src/kicad_mcp"]
 
 [tool.hatch.build.targets.sdist]
-include = [
-  "src/kicad_mcp",
-  "README.md",
-  "LICENSE",
-  "pyproject.toml",
-]
+include = ["src/kicad_mcp", "README.md", "LICENSE", "pyproject.toml"]
 
 [tool.ruff]
 target-version = "py312"

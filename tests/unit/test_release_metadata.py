@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -14,6 +15,51 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
+
+
+def _load_metadata_sync_module() -> object:
+    script = ROOT / "scripts" / "sync_mcp_metadata.py"
+    spec = importlib.util.spec_from_file_location("sync_mcp_metadata", script)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    ("license_toml", "expected"),
+    [
+        ('license = "MIT"', "MIT"),
+        ('license = { text = "MIT" }', "MIT"),
+    ],
+)
+def test_metadata_sync_accepts_supported_license_forms(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    license_toml: str,
+    expected: str,
+) -> None:
+    module = _load_metadata_sync_module()
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        f"""
+[project]
+name = "kicad-mcp-pro"
+version = "1.2.3"
+description = "Test metadata"
+{license_toml}
+
+[project.urls]
+Repository = "https://github.com/oaslananka-lab/kicad-mcp-pro"
+Documentation = "https://docs.example.test"
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "PYPROJECT", pyproject)
+
+    assert module._project_metadata()["license"] == expected
 
 
 def test_release_metadata_is_synchronised() -> None:

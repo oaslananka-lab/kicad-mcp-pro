@@ -16,6 +16,17 @@ MCP_JSON = ROOT / "mcp.json"
 SERVER_JSON = ROOT / "server.json"
 
 
+def _license_text(project: dict[str, Any]) -> str:
+    license_value = project.get("license")
+    if isinstance(license_value, str):
+        return license_value
+    if isinstance(license_value, dict):
+        text = license_value.get("text")
+        if isinstance(text, str):
+            return text
+    raise ValueError("project.license must be a PEP 639 string or a table with a text field")
+
+
 def _project_metadata() -> dict[str, Any]:
     data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
     project = data["project"]
@@ -24,7 +35,7 @@ def _project_metadata() -> dict[str, Any]:
         "package_name": project["name"],
         "version": project["version"],
         "description": project["description"],
-        "license": project["license"]["text"],
+        "license": _license_text(project),
         "repository": urls.get("Repository", urls.get("Homepage", "")),
         "homepage": urls.get("Documentation", urls.get("Homepage", "")),
     }
