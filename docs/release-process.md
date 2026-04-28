@@ -25,10 +25,12 @@ Inputs:
 - `publish`: set to `true` only for actual registry publication.
 - `approval`: set to `APPROVE_RELEASE` when `publish=true`.
 
-The workflow verifies Doppler secret names, runs tests and security checks, builds
-artifacts, creates SBOM output, attests artifacts, and publishes through
-`scripts/publish.sh` only when `publish=true` and the protected environment is
-approved.
+The workflow verifies the required GitHub Actions publish token for the selected
+index, runs tests and security checks, builds artifacts, creates SBOM output,
+attests artifacts, and publishes through `scripts/publish.sh` only when
+`publish=true` and the protected environment is approved. Doppler remains the
+preferred source for syncing secret names into GitHub, but the release workflow
+does not block on unrelated Doppler entries such as Codecov or Safety.
 
 There is no separate publish workflow. Publishing must not be triggered from
 pull requests, forks, local shells, or agent automation.

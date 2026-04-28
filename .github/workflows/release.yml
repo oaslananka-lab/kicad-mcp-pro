@@ -66,13 +66,31 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Doppler CLI
-        uses: dopplerhq/cli-action@4819d808ab99e5cde19a0637a16536a4038fad73
-
-      - name: Verify required secrets
+      - name: Verify required release secrets
         env:
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-        run: bash scripts/verify_doppler_secrets.sh
+          RELEASE_INDEX: ${{ inputs.index }}
+          RELEASE_PUBLISH: ${{ inputs.publish }}
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${RELEASE_PUBLISH}" != "true" ]; then
+            echo "Publish disabled; release token check skipped."
+            exit 0
+          fi
+          case "${RELEASE_INDEX}" in
+            PyPI) required_secret="PYPI_TOKEN" ;;
+            TestPyPI) required_secret="TEST_PYPI_TOKEN" ;;
+            *)
+              echo "Unsupported release index: ${RELEASE_INDEX}" >&2
+              exit 1
+              ;;
+          esac
+          if [ -z "${!required_secret:-}" ]; then
+            echo "Missing required GitHub Actions secret: ${required_secret}" >&2
+            exit 1
+          fi
+          echo "Required release secret is configured: ${required_secret}."
 
       - name: Install dependencies
         run: |
@@ -121,9 +139,10 @@ jobs:
       - name: Publish
         if: inputs.publish == 'true'
         env:
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
           RELEASE_INDEX: ${{ inputs.index }}
-        run: doppler run --project all --config main -- bash scripts/publish.sh
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: bash scripts/publish.sh
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

@@ -403,6 +403,18 @@ def test_pdn_mesh_reports_ac_impedance_violations() -> None:
     assert result.impedance_violations
 
 
+def test_release_workflow_uses_scoped_github_publish_secrets() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "Verify required release secrets" in workflow
+    assert "PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}" in workflow
+    assert "TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}" in workflow
+    assert "bash scripts/publish.sh" in workflow
+    assert "doppler run --project all --config main -- bash scripts/publish.sh" not in workflow
+
+
 @pytest.mark.anyio
 async def test_project_generate_design_prompt_uses_design_intent(sample_project: Path) -> None:
     server = build_server("full")
