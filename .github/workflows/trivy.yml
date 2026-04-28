@@ -25,7 +25,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build image
         run: docker build -f Dockerfile -t kicad-mcp-pro:base .
       - uses: aquasecurity/trivy-action@v0.36.0
@@ -36,7 +36,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "0"
           version: v0.70.0
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-base.sarif
@@ -52,7 +52,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build image
         run: |
           docker build \
@@ -67,7 +67,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "0"
           version: v0.70.0
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-kicad10.sarif

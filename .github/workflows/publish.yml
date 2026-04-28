@@ -39,19 +39,19 @@ jobs:
     outputs:
       artifact-name: ${{ steps.set-artifact.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Explain execution mode
         run: |
           echo "GitHub package release is manual and should normally be queued from oaslananka-lab."
           echo "Personal GitHub, Azure DevOps, and GitLab are manual fallback surfaces."
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.12'
 
@@ -85,7 +85,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/*.whl

@@ -19,16 +19,16 @@ jobs:
     env:
       DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Explain execution mode
         run: |
           echo "Automatic GitHub security CI/CD is owned by oaslananka-lab."
           echo "Personal GitHub, Azure DevOps, and GitLab are manual fallback surfaces."
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
       - run: corepack enable
