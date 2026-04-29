@@ -135,6 +135,9 @@ jobs:
             dist/bom.json
             dist/SHA256SUMS.txt
 
+      - name: Clear project virtualenv for signing action
+        run: echo "VIRTUAL_ENV=" >> "${GITHUB_ENV}"
+
       - name: Sign release artifacts with Sigstore
         uses: sigstore/gh-action-sigstore-python@04cffa1d795717b140764e8b640de88853c92acc
         with:
