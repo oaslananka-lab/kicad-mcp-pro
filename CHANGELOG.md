@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.7](https://github.com/oaslananka-lab/kicad-mcp-pro/compare/v3.1.6...v3.1.7) (2026-04-29)
+
+
+### Bug Fixes
+
+* harden canonical sync reconciliation ([7cbc31a](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/7cbc31a9f2272caf872914d5992a7337a3933842))
+* harden canonical sync reconciliation ([76d3e9a](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/76d3e9a25e979644e9c3245c2291364ae1907f98))
+* make canonical mirror push idempotent ([de36333](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/de36333fdafed5db19947390af960e0a7c309839))
+* make canonical mirror push idempotent ([5d39f17](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/5d39f17a25b706106263e75d6c85aea530be7586))
+
 ## [3.1.6](https://github.com/oaslananka-lab/kicad-mcp-pro/compare/v3.1.5...v3.1.6) (2026-04-29)
 
 
