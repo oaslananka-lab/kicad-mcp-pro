@@ -7,7 +7,7 @@ name = "kicad-mcp-pro"
 version = "3.1.1"
 description = "A professional Model Context Protocol server for KiCad EDA."
 readme = "README.md"
-license = "MIT"
+license = { text = "MIT" }
 license-files = []
 authors = [{ name = "Osman Aslan" }]
 keywords = [
