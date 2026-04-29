@@ -105,6 +105,45 @@ def test_kicad_session_maps_unavailable(fake_cli: Path) -> None:
         session.client()
 
 
+def test_kicad_session_retries_busy_board_errors(fake_cli: Path) -> None:
+    cfg = KiCadMCPConfig(kicad_cli=fake_cli, ipc_retries=2)
+    attempts = 0
+
+    class FakeClient:
+        def get_board(self) -> str:
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise RuntimeError("KiCad is busy and cannot respond to API requests right now")
+            return "board"
+
+    session = KiCadSession(
+        client_factory=lambda **_kwargs: FakeClient(),
+        config_factory=lambda: cfg,
+        sleep=lambda _seconds: None,
+    )
+
+    assert session.board() == "board"
+    assert attempts == 3
+
+
+def test_kicad_session_busy_board_error_is_actionable(fake_cli: Path) -> None:
+    cfg = KiCadMCPConfig(kicad_cli=fake_cli, ipc_retries=1)
+
+    class FakeClient:
+        def get_board(self) -> str:
+            raise RuntimeError("KiCad is busy and cannot respond to API requests right now")
+
+    session = KiCadSession(
+        client_factory=lambda **_kwargs: FakeClient(),
+        config_factory=lambda: cfg,
+        sleep=lambda _seconds: None,
+    )
+
+    with pytest.raises(KiCadBoardNotOpenError, match="busy or modal"):
+        session.board()
+
+
 def test_connection_error_keeps_backward_compatible_message() -> None:
     error = connection._connection_error(KiCadNotRunningError(""))
 
@@ -135,6 +174,17 @@ def test_connection_get_board_maps_board_not_open(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(connection, "_session", FakeSession())
 
     with pytest.raises(connection.KiCadConnectionError, match="no PCB is open"):
+        connection.get_board()
+
+
+def test_connection_get_board_preserves_busy_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeSession:
+        def board(self) -> object:
+            raise KiCadBoardNotOpenError("KiCad GUI appears to be busy or modal.")
+
+    monkeypatch.setattr(connection, "_session", FakeSession())
+
+    with pytest.raises(connection.KiCadConnectionError, match="busy or modal"):
         connection.get_board()
 
 

@@ -21,7 +21,7 @@ from ..utils.component_search import (
 )
 from ..utils.sexpr import _extract_block, _sexpr_string
 from .metadata import headless_compatible
-from .schematic import get_schematic_backend, update_symbol_property
+from .schematic import get_schematic_backend, project_schematic_files, update_symbol_property
 
 _symbol_index: dict[str, dict[str, str]] | None = None
 _symbol_index_lock = threading.Lock()
@@ -169,37 +169,43 @@ def _symbol_property(block: str, name: str) -> str:
 
 
 def _schematic_component_rows() -> list[dict[str, str]]:
-    sch_file = _active_schematic_file()
-    parsed = get_schematic_backend().parse_schematic_file(sch_file)
-    raw_content = sch_file.read_text(encoding="utf-8", errors="ignore")
+    _ = _active_schematic_file()
+    rows_by_reference: dict[str, dict[str, str]] = {}
 
-    rows_by_reference: dict[str, dict[str, str]] = {
-        str(symbol["reference"]): {
-            "reference": str(symbol["reference"]),
-            "value": str(symbol["value"]),
-            "footprint": str(symbol.get("footprint", "")),
-            "lib_id": str(symbol.get("lib_id", "")),
-            "lcsc": "",
-        }
-        for symbol in parsed["symbols"]
-        if not str(symbol["reference"]).startswith("#")
-    }
+    for sch_file in project_schematic_files():
+        parsed = get_schematic_backend().parse_schematic_file(sch_file)
+        raw_content = sch_file.read_text(encoding="utf-8", errors="ignore")
 
-    search_start = 0
-    while True:
-        block_start = raw_content.find("(symbol", search_start)
-        if block_start < 0:
-            break
-        block, consumed = _extract_block(raw_content, block_start)
-        search_start = block_start + max(consumed, 1)
-        if '(lib_id "' not in block:
-            continue
-        reference = _symbol_property(block, "Reference")
-        if not reference or reference.startswith("#") or reference not in rows_by_reference:
-            continue
-        lcsc_code = _symbol_property(block, "LCSC") or _symbol_property(block, "LCSC Part")
-        if lcsc_code:
-            rows_by_reference[reference]["lcsc"] = normalize_lcsc_code(lcsc_code)
+        for symbol in parsed["symbols"]:
+            reference = str(symbol["reference"])
+            if reference.startswith("#"):
+                continue
+            rows_by_reference.setdefault(
+                reference,
+                {
+                    "reference": reference,
+                    "value": str(symbol["value"]),
+                    "footprint": str(symbol.get("footprint", "")),
+                    "lib_id": str(symbol.get("lib_id", "")),
+                    "lcsc": "",
+                },
+            )
+
+        search_start = 0
+        while True:
+            block_start = raw_content.find("(symbol", search_start)
+            if block_start < 0:
+                break
+            block, consumed = _extract_block(raw_content, block_start)
+            search_start = block_start + max(consumed, 1)
+            if '(lib_id "' not in block:
+                continue
+            reference = _symbol_property(block, "Reference")
+            if not reference or reference.startswith("#") or reference not in rows_by_reference:
+                continue
+            lcsc_code = _symbol_property(block, "LCSC") or _symbol_property(block, "LCSC Part")
+            if lcsc_code:
+                rows_by_reference[reference]["lcsc"] = normalize_lcsc_code(lcsc_code)
     return list(rows_by_reference.values())
 
 
@@ -209,10 +215,10 @@ def _lookup_component(
     lcsc_code: str,
     value: str,
 ) -> ComponentRecord | None:
-    identifier = lcsc_code or value
-    if not identifier:
+    _ = value
+    if not lcsc_code:
         return None
-    return client.get_part(identifier)
+    return client.get_part(lcsc_code)
 
 
 def _group_bom_rows(symbol_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -470,6 +476,16 @@ def register(mcp: FastMCP) -> None:
             return f"Live component search failed: {exc}"
 
         filtered = [item for item in results if item.stock >= min_stock]
+        if results and not filtered:
+            ordered_below_stock = _sort_component_results(results, sort_by=sort_by)
+            return _format_component_lines(
+                (
+                    f"Live component matches for '{keyword}' from {source} "
+                    f"({len(ordered_below_stock)} total below min_stock={min_stock}):\n"
+                    "Matches exist, but all are below the requested stock threshold."
+                ),
+                ordered_below_stock,
+            )
         ordered = _sort_component_results(filtered, sort_by=sort_by)
         return _format_component_lines(
             f"Live component matches for '{keyword}' from {source} ({len(ordered)} total):",
@@ -535,7 +551,11 @@ def register(mcp: FastMCP) -> None:
                 value=str(row["value"]),
             )
             part_label = part.lcsc_code if part is not None else "(unresolved)"
-            mpn = part.mpn if part is not None else row["value"]
+            mpn = (
+                part.mpn
+                if part is not None
+                else (f"{row['value']} (add LCSC field; value-only matching disabled)")
+            )
             stock = f"{part.stock:,}" if part is not None else "n/a"
             price = part.price if part is not None else None
             unit_price = f"${price:.6f}" if price is not None else "(n/a)"
@@ -577,7 +597,9 @@ def register(mcp: FastMCP) -> None:
                 value=row["value"],
             )
             if part is None:
-                lines.append(f"- {row['reference']}: unresolved ({row['value']})")
+                lines.append(
+                    f"- {row['reference']}: unresolved ({row['value']}; add an LCSC field)"
+                )
                 continue
             price = f"${part.price:.6f}" if part.price is not None else "(n/a)"
             lines.append(

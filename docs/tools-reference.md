@@ -31,6 +31,16 @@ and `export_manufacturing_package()` for the gated handoff. Low-level `export_*(
 tools remain available in broader profiles such as `full` and `minimal` for debugging
 or interchange output, and those direct exports do not enforce `project_quality_gate()`.
 
+For flat multi-sheet projects, `export_bom()` and
+`validate_footprints_vs_schematic()` consolidate sibling `.kicad_sch` files in the
+active project directory. Numbered sync-conflict duplicates such as
+`project 2.kicad_sch` are ignored by this automatic consolidation.
+
+Live LCSC/JLCPCB pricing tools fail closed for manufacturing-sensitive output:
+`lib_get_bom_with_pricing()` uses explicit `LCSC`/`LCSC Part` fields and leaves
+unresolved lines when a part code is absent instead of guessing from a generic
+value string.
+
 ## Design Intent Tools
 
 These tools persist the engineering assumptions that intent-aware placement checks use:

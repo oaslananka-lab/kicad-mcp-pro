@@ -33,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build image
-        run: docker build -f Dockerfile -t kicad-mcp-pro:base .
+        run: docker build --pull -f Dockerfile -t kicad-mcp-pro:base .
       - name: Scan image vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
@@ -84,6 +84,7 @@ jobs:
           KICAD_APPIMAGE_URL: ${{ inputs.kicad_appimage_url }}
         run: |
           docker build \
+            --pull \
             --build-arg KICAD_APPIMAGE_URL="${KICAD_APPIMAGE_URL}" \
             -f Dockerfile.kicad10 \
             -t kicad-mcp-pro:kicad10 .

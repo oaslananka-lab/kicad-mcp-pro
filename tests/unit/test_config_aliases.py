@@ -37,6 +37,25 @@ def test_invalid_timeout_alias_is_rejected(monkeypatch) -> None:
         KiCadMCPConfig()
 
 
+def test_project_dir_env_prefers_canonical_project_over_numbered_duplicate(
+    tmp_path: Path,
+    fake_cli: Path,
+    monkeypatch,
+) -> None:
+    project_dir = tmp_path / "light-noise-detektor"
+    project_dir.mkdir()
+    canonical = project_dir / "light-noise-detektor.kicad_pro"
+    duplicate = project_dir / "light-noise-detektor 2.kicad_pro"
+    canonical.touch()
+    duplicate.touch()
+    (project_dir / "light-noise-detektor.kicad_sch").touch()
+    monkeypatch.setenv("KICAD_MCP_PROJECT_DIR", str(project_dir))
+
+    cfg = KiCadMCPConfig(kicad_cli=fake_cli)
+
+    assert cfg.project_file == canonical
+
+
 def test_vscode_webview_origin_is_allowed(sample_project: Path) -> None:
     _ = sample_project
     cfg = KiCadMCPConfig(cors_origins="vscode-webview://kicad-studio")

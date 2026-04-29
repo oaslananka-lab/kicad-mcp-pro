@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from kicad_mcp.config import get_config
 from kicad_mcp.server import build_server
 from kicad_mcp.tools.schematic import parse_schematic_file
 from tests.conftest import call_tool_text
@@ -859,6 +860,97 @@ async def test_schematic_update_property_escapes_quotes(sample_project, mock_kic
     schematic = (sample_project / "demo.kicad_sch").read_text(encoding="utf-8")
     assert "Updated R1.Value" in text
     assert '(property "Value" "10k \\"1%\\""' in schematic
+
+
+@pytest.mark.anyio
+async def test_schematic_update_properties_preserves_user_paper_and_updates_all_units(
+    sample_project,
+    mock_kicad,
+) -> None:
+    _ = mock_kicad
+    (sample_project / "demo.kicad_sch").write_text(
+        (
+            "(kicad_sch\n"
+            "\t(version 20250316)\n"
+            '\t(generator "pytest")\n'
+            '\t(uuid "00000000-0000-0000-0000-000000000000")\n'
+            '\t(paper "User" 298.45 217.3224)\n'
+            "\t(lib_symbols)\n"
+            '\t(symbol (lib_id "Amplifier:SSI2164") (at 88.9 142.24 0) (unit 1)\n'
+            '\t\t(property "Reference" "IC5" (at 88.9 144.78 0))\n'
+            '\t\t(property "Value" "V2164SZ" (at 88.9 139.7 0))\n'
+            '\t\t(property "Footprint" "Package_SO:SOIC-16" (at 88.9 137.16 0))\n'
+            "\t)\n"
+            '\t(symbol (lib_id "Amplifier:SSI2164") (at 124.46 81.28 0) (unit 4)\n'
+            '\t\t(property "Reference" "IC5" (at 124.46 83.82 0))\n'
+            '\t\t(property "Value" "V2164SZ" (at 124.46 78.74 0))\n'
+            '\t\t(property "Footprint" "Package_SO:SOIC-16" (at 124.46 76.2 0))\n'
+            "\t)\n"
+            "\t(sheet_instances\n"
+            '\t\t(path "/" (page "1"))\n'
+            "\t)\n"
+            "\t(embedded_fonts no)\n"
+            ")\n"
+        ),
+        encoding="utf-8",
+    )
+
+    server = build_server("schematic")
+    text = await call_tool_text(
+        server,
+        "sch_update_properties",
+        {"reference": "IC5", "field": "Value", "value": "SSI2164"},
+    )
+
+    schematic = (sample_project / "demo.kicad_sch").read_text(encoding="utf-8")
+    assert "Updated IC5.Value on 2 instance(s)." in text
+    assert '(paper "User" 298.45 217.3224)' in schematic
+    assert schematic.count('(property "Value" "SSI2164"') == 2
+    assert "V2164SZ" not in schematic
+
+
+@pytest.mark.anyio
+async def test_schematic_pin_positions_parse_imported_pin_blocks(
+    sample_project,
+    mock_kicad,
+) -> None:
+    _ = sample_project, mock_kicad
+    symbol_dir = get_config().symbol_library_dir
+    assert symbol_dir is not None
+    (symbol_dir / "Connector_Audio.kicad_sym").write_text(
+        (
+            "(kicad_symbol_lib (version 20250316) (generator pytest)\n"
+            '  (symbol "PJ301_THONKICONNTME"\n'
+            '    (property "Reference" "J" (id 0) (at 0 5.08 0))\n'
+            '    (property "Value" "PJ301_THONKICONNTME" (id 1) (at 0 -5.08 0))\n'
+            "    (pin passive line (at -2.54 0 0) (length 2.54)\n"
+            '      (number "1") (name "SLEEVE"))\n'
+            "    (pin passive line (at 0 2.54 270) (length 2.54)\n"
+            '      (number "2") (name "SWITCH"))\n'
+            "    (pin passive line (at 2.54 0 180) (length 2.54)\n"
+            '      (number "3") (name "TIP"))\n'
+            "  )\n"
+            ")\n"
+        ),
+        encoding="utf-8",
+    )
+
+    server = build_server("schematic")
+    text = await call_tool_text(
+        server,
+        "sch_get_pin_positions",
+        {
+            "library": "Connector_Audio",
+            "symbol_name": "PJ301_THONKICONNTME",
+            "x_mm": 10.0,
+            "y_mm": 20.0,
+        },
+    )
+
+    assert "Connector_Audio:PJ301_THONKICONNTME @ (10.0, 20.0)" in text
+    assert "- Pin 1:" in text
+    assert "- Pin 2:" in text
+    assert "- Pin 3:" in text
 
 
 @pytest.mark.anyio

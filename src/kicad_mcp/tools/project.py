@@ -147,6 +147,7 @@ def _render_project_info() -> str:
             "Current project configuration:",
             f"- Project directory: {cfg.project_dir or '(not set)'}",
             f"- Project file: {cfg.project_file or '(not set)'}",
+            f"- Resolved project: {cfg.project_file or '(not set)'}",
             f"- PCB file: {cfg.pcb_file or '(not set)'}",
             f"- Schematic file: {cfg.sch_file or '(not set)'}",
             f"- Output directory: {cfg.output_dir or '(not set)'}",
