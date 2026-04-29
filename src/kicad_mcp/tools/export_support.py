@@ -20,6 +20,9 @@ _TRANSIENT_CLI_PATTERNS = (
     "timed out",
     "connection refused",
     "resource busy",
+    "kicad is busy",
+    "cannot respond to api requests",
+    "gui appears to be busy",
     "temporarily unavailable",
     "ipc",
     "socket",
@@ -31,7 +34,16 @@ def _sanitize_cli_text(text: str) -> str:
     sanitized = text.replace(str(cfg.kicad_cli), "kicad-cli")
     if cfg.project_dir is not None:
         sanitized = sanitized.replace(str(cfg.project_dir), "<project>")
-    return sanitized.strip()
+    sanitized = sanitized.strip()
+    if (
+        "kicad is busy" in sanitized.casefold()
+        or "cannot respond to api requests" in sanitized.casefold()
+    ):
+        return (
+            f"{sanitized} KiCad GUI appears to be busy or modal; retry after closing dialogs, "
+            "finishing the current edit, or saving the board."
+        )
+    return sanitized
 
 
 def _run_cli(*args: str, timeout: float | None = None) -> tuple[int, str, str]:

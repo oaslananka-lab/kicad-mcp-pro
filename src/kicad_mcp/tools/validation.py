@@ -259,7 +259,7 @@ def _board_footprint_references() -> tuple[set[str], str, str | None]:
 
 
 def _footprint_parity_outcome() -> GateOutcome:
-    from .schematic import parse_schematic_file
+    from .schematic import parse_schematic_file, project_schematic_files
 
     cfg = get_config()
     if cfg.sch_file is None or cfg.pcb_file is None:
@@ -269,14 +269,17 @@ def _footprint_parity_outcome() -> GateOutcome:
             summary="Both schematic and PCB files must be configured first.",
         )
 
-    schematic = parse_schematic_file(cfg.sch_file)
-    schematic_refs = {
-        str(symbol["reference"])
-        for symbol in schematic["symbols"]
-        if str(symbol["reference"]).strip()
-        and not str(symbol["reference"]).startswith("#")
-        and str(symbol["footprint"]).strip()
-    }
+    schematic_files = project_schematic_files()
+    schematic_refs: set[str] = set()
+    for sch_file in schematic_files:
+        schematic = parse_schematic_file(sch_file)
+        schematic_refs.update(
+            str(symbol["reference"])
+            for symbol in schematic["symbols"]
+            if str(symbol["reference"]).strip()
+            and not str(symbol["reference"]).startswith("#")
+            and str(symbol["footprint"]).strip()
+        )
     board_refs, source, error = _board_footprint_references()
     if error is not None:
         return GateOutcome(
@@ -289,6 +292,7 @@ def _footprint_parity_outcome() -> GateOutcome:
     missing_in_schematic = sorted(board_refs - schematic_refs)
     status: GateStatus = "PASS" if not missing_on_board and not missing_in_schematic else "FAIL"
     details = [
+        f"Schematic files scanned: {len(schematic_files)}",
         f"Schematic refs with footprints: {len(schematic_refs)}",
         f"PCB footprint refs ({source}): {len(board_refs)}",
         f"Missing on board: {len(missing_on_board)}",

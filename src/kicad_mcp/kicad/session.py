@@ -44,12 +44,24 @@ class SessionConfig(Protocol):
 
 
 ConfigFactory = Callable[[], SessionConfig]
+_BUSY_PATTERNS = (
+    "busy",
+    "cannot respond",
+    "modal",
+    "temporarily unavailable",
+    "try again",
+)
 
 
 def _default_config() -> SessionConfig:
     from ..config import get_config
 
     return get_config()
+
+
+def _is_busy_error(message: str) -> bool:
+    lowered = message.casefold()
+    return any(pattern in lowered for pattern in _BUSY_PATTERNS)
 
 
 class KiCadSession:
@@ -154,17 +166,44 @@ class KiCadSession:
 
     def board(self) -> object:
         """Return the active KiCad board."""
+        cfg = self._config_factory()
+        attempts = max(1, cfg.ipc_retries + 1)
+        last_error: BaseException | None = None
         try:
-            get_board = getattr(self.client(), "get_board", None)
-            if not callable(get_board):
-                raise AttributeError("KiCad client does not expose get_board().")
-            return get_board()
+            client = self.client()
         except KiCadNotRunningError:
             raise
-        except Exception as exc:
+        get_board = getattr(client, "get_board", None)
+        if not callable(get_board):
+            raise KiCadBoardNotOpenError("KiCad client does not expose get_board().")
+
+        for attempt in range(1, attempts + 1):
+            try:
+                return get_board()
+            except Exception as exc:
+                last_error = exc
+                message = str(exc)
+                if self._logger is not None:
+                    self._logger.warning(
+                        "kicad_get_board_failed",
+                        attempt=attempt,
+                        attempts=attempts,
+                        error=message,
+                    )
+                if not _is_busy_error(message) or attempt >= attempts:
+                    break
+                self._sleep(min(0.2 * attempt, 1.0))
+
+        message = str(last_error or "")
+        if _is_busy_error(message):
             raise KiCadBoardNotOpenError(
-                "KiCad IPC is reachable, but no PCB is open in the active KiCad session."
-            ) from exc
+                "KiCad GUI appears to be busy or modal and cannot respond to IPC requests "
+                "right now. Try again, close any open KiCad dialog, or finish/save the "
+                "current GUI operation before retrying."
+            ) from last_error
+        raise KiCadBoardNotOpenError(
+            "KiCad IPC is reachable, but no PCB is open in the active KiCad session."
+        ) from last_error
 
     def probe(self) -> dict[str, object]:
         """Return a small capability probe without leaking secrets."""

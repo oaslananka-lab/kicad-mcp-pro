@@ -11,6 +11,7 @@ from kicad_mcp.utils.component_search import (
     JLCSearchClient,
     NexarClient,
     RateLimiter,
+    _plain_text_lines,
     _request_json,
     normalize_lcsc_code,
 )
@@ -78,6 +79,10 @@ def test_jlcsearch_get_part_prefers_exact_lcsc_match(monkeypatch) -> None:
         "kicad_mcp.utils.component_search.JLCSearchClient.search",
         lambda self, keyword, **kwargs: records,
     )
+    monkeypatch.setattr(
+        "kicad_mcp.utils.component_search.JLCSearchClient._search_jlcpcb_public",
+        lambda self, keyword, *, limit: [],
+    )
 
     part = JLCSearchClient().get_part("25804")
 
@@ -116,7 +121,7 @@ def test_request_json_builds_expected_request(monkeypatch) -> None:
     assert seen["timeout"] == 20
 
 
-def test_jlcsearch_get_part_falls_back_to_mpn_and_first_result(monkeypatch) -> None:
+def test_jlcsearch_get_part_falls_back_to_exact_mpn_only(monkeypatch) -> None:
     records = [
         ComponentRecord(
             source="jlcsearch",
@@ -145,15 +150,67 @@ def test_jlcsearch_get_part_falls_back_to_mpn_and_first_result(monkeypatch) -> N
         "kicad_mcp.utils.component_search.JLCSearchClient.search",
         lambda self, keyword, **kwargs: records,
     )
+    monkeypatch.setattr(
+        "kicad_mcp.utils.component_search.JLCSearchClient._search_jlcpcb_public",
+        lambda self, keyword, *, limit: [],
+    )
 
     assert JLCSearchClient().get_part("abc-123").mpn == "ABC-123"
-    assert JLCSearchClient().get_part("unmatched").lcsc_code == "C11111"
+    assert JLCSearchClient().get_part("unmatched") is None
 
     monkeypatch.setattr(
         "kicad_mcp.utils.component_search.JLCSearchClient.search",
         lambda self, keyword, **kwargs: [],
     )
     assert JLCSearchClient().get_part("unmatched") is None
+
+
+def test_jlcsearch_public_detail_fallback_parses_extended_lcsc_code(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "kicad_mcp.utils.component_search._request_json",
+        lambda _url, _params: {"components": []},
+    )
+
+    html = """
+    <html><head><title>SSI2164 | JLCPCB Assembly | New Arrivals | JLCPCB</title></head>
+    <body>
+    <h1>SSI2164</h1><p>Extended</p>
+    <div>MFR.Part #</div><div>SSI2164</div>
+    <div>JLCPCB Part #</div><div>C9900088938</div>
+    <div>Package</div><div>SOIC-16</div>
+    <div>Description</div><div>SOIC-16 New Arrivals ROHS</div>
+    <div>In Stock: 0</div><div>1+ $0.0365</div>
+    </body></html>
+    """
+    monkeypatch.setattr(
+        "kicad_mcp.utils.component_search.JLCSearchClient._request_text",
+        lambda self, url, params=None: html,
+    )
+
+    part = JLCSearchClient().get_part("C9900088938")
+
+    assert part is not None
+    assert part.lcsc_code == "C9900088938"
+    assert part.mpn == "SSI2164"
+    assert part.package == "SOIC-16"
+    assert part.is_basic is False
+
+
+def test_plain_text_lines_ignores_script_tags_with_spaced_end_tags() -> None:
+    lines = _plain_text_lines(
+        """
+        <html>
+          <script>dangerousText()</script >
+          <style>.hidden { color: red; }</style >
+          <body><h1>SSI2164</h1><p>C9900088938</p></body>
+        </html>
+        """
+    )
+
+    assert "SSI2164" in lines
+    assert "C9900088938" in lines
+    assert all("dangerousText" not in line for line in lines)
+    assert all("hidden" not in line for line in lines)
 
 
 def test_optional_search_clients_raise_clear_messages(monkeypatch) -> None:

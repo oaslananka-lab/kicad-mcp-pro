@@ -31,6 +31,7 @@ async def test_project_resources_prompts_and_library_surface(
     text = await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
     assert "Current project configuration" in text
     assert str(sample_project) in text
+    assert f"- Resolved project: {sample_project / 'demo.kicad_pro'}" in text
 
     info = await call_tool_text(server, "kicad_get_project_info", {})
     scan = await call_tool_text(server, "kicad_scan_directory", {"path": str(sample_project)})

@@ -39,6 +39,20 @@ KICAD_MCP_PROJECT_DIR=/absolute/path/to/project
 
 The directory should contain a `.kicad_pro` file and usually matching `.kicad_sch` and `.kicad_pcb` files.
 
+When a directory contains both `<directory>.kicad_pro` and sync-conflict duplicates such as `<directory> 2.kicad_pro`, the server prefers the canonical basename match and ignores numbered duplicates during automatic discovery. `kicad_set_project()` echoes the resolved project file in its response.
+
+## KiCad Reports Busy
+
+Some KiCad IPC and CLI operations can fail while the GUI is modal, saving, or actively editing. The server retries transient busy responses, then returns an actionable message if KiCad still cannot respond. Close modal dialogs, finish the current drag/edit operation, save the file, and retry the tool.
+
+## Flat Multi-Sheet Projects
+
+Imported Eagle projects often contain several top-level `.kicad_sch` files without hierarchical sheet links. `export_bom()` and `validate_footprints_vs_schematic()` consolidate non-duplicate schematic siblings in the project directory so they do not compare only the active sheet against the whole PCB.
+
+## Live LCSC/JLCPCB Lookups
+
+`lib_get_bom_with_pricing()` resolves only explicit LCSC fields. It does not infer purchasable parts from a generic value such as `10k` or `20kB`, because value-only matches can return the wrong category. Add an `LCSC` or `LCSC Part` property before using pricing output for manufacturing review.
+
 ## Windows Path Issues
 
 Use absolute paths and avoid relying on client-side expansion such as `${workspaceFolder}` unless your MCP client documents support for it.
