@@ -15,7 +15,7 @@
     "test": "uv run python -m pytest tests/unit/ tests/integration/ tests/e2e/ -q --cov=kicad_mcp --cov-report=term-missing --cov-report=xml --cov-fail-under=90",
     "test:unit": "uv run python -m pytest tests/unit/ -q",
     "build": "uv build",
-    "package:check": "uv build",
+    "package:check": "uv build && uv run python scripts/check_package_metadata.py",
     "workflows:lint": "uv run python scripts/check_workflows.py --actionlint",
     "workflows:security": "uv run python scripts/workflow_security.py --min-severity high",
     "security:bandit": "uv run python -m bandit -r src/ -ll -s B104",
