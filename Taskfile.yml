@@ -4,7 +4,6 @@ tasks:
   install:
     desc: Install all development dependencies
     cmds:
-      - corepack enable
       - corepack npm ci
       - uv sync --all-extras --frozen
 
