@@ -47,6 +47,7 @@ jobs:
           fi
 
           git remote add org "https://x-access-token:${MIRROR_TOKEN}@github.com/oaslananka-lab/kicad-mcp-pro.git"
+          git fetch org --prune '+refs/heads/*:refs/remotes/org/*'
 
           delete_org_ref_if_present() {
             refspec="$1"
@@ -76,13 +77,34 @@ jobs:
           fi
 
           git fetch origin '+refs/heads/*:refs/heads/*' --tags
+
+          push_canonical_branch_to_org() {
+            ref="$1"
+            branch="$2"
+            target_ref="refs/heads/$branch"
+
+            if [ "$branch" = "main" ]; then
+              if git show-ref --verify --quiet refs/remotes/org/main; then
+                canonical_tree="$(git rev-parse "${ref}^{tree}")"
+                org_tree="$(git rev-parse "refs/remotes/org/main^{tree}")"
+                if [ "$canonical_tree" = "$org_tree" ]; then
+                  echo "Skipping main mirror push; canonical and org trees already match."
+                  return 0
+                fi
+                if ! git merge-base --is-ancestor refs/remotes/org/main "$ref"; then
+                  echo "::error::canonical main is not a fast-forward of org main and trees differ. Open a reviewed sync PR instead."
+                  exit 1
+                fi
+              fi
+              git push org "$ref:$target_ref"
+            else
+              git push org "$ref:$target_ref" --force
+            fi
+          }
+
           for ref in $(git for-each-ref --format='%(refname)' refs/heads); do
             branch="${ref#refs/heads/}"
-            if [ "$branch" = "main" ]; then
-              git push org "$ref:refs/heads/$branch"
-            else
-              git push org "$ref:refs/heads/$branch" --force
-            fi
+            push_canonical_branch_to_org "$ref" "$branch"
           done
           git push org --tags --force
 
