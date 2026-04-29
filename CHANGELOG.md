@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.2](https://github.com/oaslananka-lab/kicad-mcp-pro/compare/v3.1.1...v3.1.2) (2026-04-29)
+
+
+### Bug Fixes
+
+* break codeql import cycles ([#23](https://github.com/oaslananka-lab/kicad-mcp-pro/issues/23)) ([2319dae](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/2319daea64e4254419c87917bd78aa9fbcb2602f))
+* install workflow lint tool in release ([#22](https://github.com/oaslananka-lab/kicad-mcp-pro/issues/22)) ([be85674](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/be8567489c540338ff2c2572d9474eb83316bca9))
+* satisfy codeql export compatibility aliases ([#24](https://github.com/oaslananka-lab/kicad-mcp-pro/issues/24)) ([d3be55b](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/d3be55b42ffe35f1d249acc75195efeb65b66bb9))
+* use pypi-compatible license metadata ([f0db726](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/f0db7269c97a305116858e8bce2b7db490ad8dda))
+* use pypi-compatible license metadata ([735f1a3](https://github.com/oaslananka-lab/kicad-mcp-pro/commit/735f1a34e3e57cb1c583ce4457bd700fef66ac85))
+
 ## [3.1.1](https://github.com/oaslananka-lab/kicad-mcp-pro/compare/v3.1.0...v3.1.1) (2026-04-28)
 
 
