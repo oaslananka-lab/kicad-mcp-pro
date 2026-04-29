@@ -29,17 +29,34 @@ from ..models.intent import (
 from ..path_safety import assert_within
 from ..prompts.workflows import render_professional_circuit_design_prompt
 from ..utils.cache import clear_ttl_cache, ttl_cache
+from .design_intent_state import (
+    DecouplingPairIntent,
+    ProjectDesignIntent,
+    ProjectDesignSpec,
+    ProjectSpecResolution,
+    ProjectSpecSource,
+    RFKeepoutIntent,
+    set_design_intent_resolver,
+)
 from .fixers import fixers_for_gate, sampling_prompt_for_gate
 from .metadata import headless_compatible
 from .router import TOOL_CATEGORIES, available_profiles
 
 logger = structlog.get_logger(__name__)
+__all__ = [
+    "DecouplingPairIntent",
+    "ProjectDesignIntent",
+    "ProjectDesignSpec",
+    "ProjectSpecResolution",
+    "ProjectSpecSource",
+    "RFKeepoutIntent",
+    "resolve_design_intent",
+]
 
 PROJECT_SPEC_DIRNAME = ".kicad-mcp"
 PROJECT_SPEC_FILENAME = "project_spec.json"
 LEGACY_DESIGN_INTENT_FILENAME = "design_intent.json"
 DEFAULT_INFERRED_DECOUPLING_DISTANCE_MM = 6.0
-ProjectSpecSource = Literal["project_spec", "legacy_design_intent", "none"]
 _REPORTED_LEGACY_INTENT_PATHS: set[Path] = set()
 
 
@@ -54,89 +71,6 @@ class CreateProjectInput(BaseModel):
 
     path: str = Field(min_length=1, max_length=1000)
     name: str = Field(min_length=1, max_length=120)
-
-
-class DecouplingPairIntent(BaseModel):
-    """Intent describing which capacitors should stay close to an IC."""
-
-    ic_ref: str = Field(min_length=1, max_length=50)
-    cap_refs: list[str] = Field(min_length=1, max_length=20)
-    max_distance_mm: float = Field(default=3.0, gt=0.0, le=50.0)
-
-
-class RFKeepoutIntent(BaseModel):
-    """Intent describing an RF-sensitive keepout area."""
-
-    name: str = Field(default="RF Keepout", min_length=1, max_length=100)
-    x_mm: float
-    y_mm: float
-    w_mm: float = Field(gt=0.0, le=5000.0)
-    h_mm: float = Field(gt=0.0, le=5000.0)
-    frequency_mhz: float | None = Field(default=None, gt=0.0, le=300_000.0)
-
-
-class ProjectDesignIntent(BaseModel):
-    """Persisted high-level design intent used by validation and workflow tools.
-
-    **v1 fields** (kicad-mcp-pro ≤ 2.0.x) — always present, backward-compatible.
-    **v2 fields** (kicad-mcp-pro ≥ 2.1.0) — optional, default to empty / None so
-    that old JSON files load without error.
-    """
-
-    # --- v1 fields (backward-compatible) ---
-    connector_refs: list[str] = Field(default_factory=list)
-    decoupling_pairs: list[DecouplingPairIntent] = Field(default_factory=list)
-    critical_nets: list[str] = Field(default_factory=list)
-    power_tree_refs: list[str] = Field(default_factory=list)
-    analog_refs: list[str] = Field(default_factory=list)
-    digital_refs: list[str] = Field(default_factory=list)
-    sensor_cluster_refs: list[str] = Field(default_factory=list)
-    rf_keepout_regions: list[RFKeepoutIntent] = Field(default_factory=list)
-    manufacturer: str = Field(default="")
-    manufacturer_tier: str = Field(default="")
-    functional_spacing_mm: float = Field(default=5.0, ge=0.0, le=100.0)
-    thermal_hotspots: list[str] = Field(default_factory=list)
-    critical_frequencies_mhz: list[float] = Field(default_factory=list)
-
-    # --- v2 fields (new in 2.1.0) ---
-    power_rails: list[PowerRailSpec] = Field(
-        default_factory=list,
-        description="Voltage rails with current budgets, tolerance, and decoupling strategy.",
-    )
-    interfaces: list[InterfaceSpec] = Field(
-        default_factory=list,
-        description="High-speed or protocol-critical interface specifications.",
-    )
-    mechanical: MechanicalConstraint = Field(
-        default_factory=MechanicalConstraint,
-        description="Board-level mechanical constraints (outline, mount holes, connector edges).",
-    )
-    compliance: list[ComplianceTarget] = Field(
-        default_factory=list,
-        description="Regulatory compliance targets (FCC, CE, UL, automotive, medical).",
-    )
-    cost: CostTarget = Field(
-        default_factory=CostTarget,
-        description="Unit-cost and NRE budget constraints.",
-    )
-    thermal: ThermalEnvelope = Field(
-        default_factory=ThermalEnvelope,
-        description="Thermal operating-environment specification.",
-    )
-
-
-ProjectDesignSpec = ProjectDesignIntent
-
-
-class ProjectSpecResolution(BaseModel):
-    """Combined explicit and inferred design-spec view for agent workflows."""
-
-    source: ProjectSpecSource = "none"
-    path: str = ""
-    explicit: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
-    inferred: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
-    resolved: ProjectDesignSpec = Field(default_factory=ProjectDesignSpec)
-    notes: list[str] = Field(default_factory=list)
 
 
 class ProjectSpecPayload(BaseModel):
@@ -523,7 +457,7 @@ def _component_category(reference: str, entry: dict[str, Any]) -> str:
 
 
 def _infer_design_intent_from_board() -> tuple[ProjectDesignIntent, list[str]]:
-    from .pcb import _normalize_board_content, _parse_board_footprint_blocks
+    from .board_file import _normalize_board_content, _parse_board_footprint_blocks
 
     cfg = get_config()
     if cfg.pcb_file is None or not cfg.pcb_file.exists():
@@ -666,9 +600,12 @@ def resolve_design_intent() -> ProjectSpecResolution:
     )
 
 
+set_design_intent_resolver(resolve_design_intent)
+
+
 def validate_design_intent(intent: ProjectDesignIntent | None = None) -> list[str]:
     """Validate explicit or resolved design-spec references against the active board."""
-    from .pcb import _normalize_board_content, _parse_board_footprint_blocks
+    from .board_file import _normalize_board_content, _parse_board_footprint_blocks
 
     cfg = get_config()
     if cfg.pcb_file is None or not cfg.pcb_file.exists():
@@ -1138,7 +1075,8 @@ def register(mcp: FastMCP) -> None:
         """
         import importlib
 
-        from .validation import GateOutcome, _combined_status, _evaluate_project_gate
+        from .gates import GateOutcome, _combined_status
+        from .validation import _evaluate_project_gate
 
         max_iterations = max(1, min(max_iterations, 20))
         iterations_used = 0
@@ -1326,7 +1264,8 @@ def register(mcp: FastMCP) -> None:
         """Run ERC/DRC/project gates in a bounded fix-and-rerun validation loop."""
         import importlib
 
-        from .validation import GateOutcome, _combined_status, _evaluate_project_gate
+        from .gates import GateOutcome, _combined_status
+        from .validation import _evaluate_project_gate
 
         max_iterations = max(1, min(max_iterations, 20))
         outcomes = _evaluate_project_gate()
@@ -1455,7 +1394,8 @@ def register(mcp: FastMCP) -> None:
         This is the recommended first call after opening a project to understand
         its current state.
         """
-        from .validation import GateOutcome, _combined_status, _evaluate_project_gate
+        from .gates import GateOutcome, _combined_status
+        from .validation import _evaluate_project_gate
 
         resolution = resolve_design_intent()
         intent = resolution.resolved

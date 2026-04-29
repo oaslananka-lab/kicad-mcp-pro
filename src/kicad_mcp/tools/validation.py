@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import math
 import re
+import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -24,20 +26,10 @@ from ..utils.dru import (
     parse_dru,
     upsert_rule,
 )
-from .export import _ensure_output_dir, _get_pcb_file, _get_sch_file, _run_cli_variants
+from .export_support import _ensure_output_dir, _get_pcb_file, _get_sch_file, _run_cli_variants
+from .gates import GateOutcome, GateStatus, _combined_status
 from .metadata import headless_compatible
-
-GateStatus = Literal["PASS", "FAIL", "BLOCKED"]
-
-
-@dataclass(slots=True)
-class GateOutcome:
-    """Structured status for a validation gate."""
-
-    name: str
-    status: GateStatus
-    summary: str
-    details: list[str] = field(default_factory=list)
+from .schematic_transfer import _collect_schematic_components, _export_schematic_net_map
 
 
 @dataclass(slots=True)
@@ -105,6 +97,23 @@ class PlacementGateReportPayload(BaseModel):
     thermal_proximity_sum: float = 0.0
     hard_failures: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+def _pcb_transfer_helpers() -> tuple[
+    Callable[[], tuple[list[dict[str, Any]], list[str]]],
+    Callable[[], tuple[dict[tuple[str, str], str], str]],
+]:
+    """Return transfer helpers while honoring the legacy pcb monkeypatch path."""
+    pcb_module = sys.modules.get("kicad_mcp.tools.pcb")
+    if pcb_module is None:
+        return _collect_schematic_components, _export_schematic_net_map
+
+    collect = getattr(pcb_module, "_collect_schematic_components", _collect_schematic_components)
+    export = getattr(pcb_module, "_export_schematic_net_map", _export_schematic_net_map)
+    return cast(Callable[[], tuple[list[dict[str, Any]], list[str]]], collect), cast(
+        Callable[[], tuple[dict[tuple[str, str], str], str]],
+        export,
+    )
 
 
 def _load_report(path: Path) -> dict[str, object]:
@@ -240,7 +249,7 @@ def _board_footprint_references() -> tuple[set[str], str, str | None]:
             None,
         )
     except (KiCadConnectionError, OSError):
-        from .pcb import _parse_board_footprint_blocks
+        from .board_file import _parse_board_footprint_blocks
 
         try:
             board_text = _get_pcb_file().read_text(encoding="utf-8", errors="ignore")
@@ -300,11 +309,9 @@ def _footprint_parity_outcome() -> GateOutcome:
 
 
 def _evaluate_pcb_transfer_gate() -> GateOutcome:
-    from .pcb import (
-        _collect_schematic_components,
-        _export_schematic_net_map,
-        _parse_board_footprint_blocks,
-    )
+    from .board_file import _parse_board_footprint_blocks
+
+    collect_schematic_components, export_schematic_net_map = _pcb_transfer_helpers()
 
     cfg = get_config()
     if cfg.sch_file is None or cfg.pcb_file is None:
@@ -315,7 +322,7 @@ def _evaluate_pcb_transfer_gate() -> GateOutcome:
         )
 
     try:
-        components, issues = _collect_schematic_components()
+        components, issues = collect_schematic_components()
     except ValueError as exc:
         return GateOutcome(
             name="PCB transfer",
@@ -330,7 +337,7 @@ def _evaluate_pcb_transfer_gate() -> GateOutcome:
             details=issues[:12],
         )
 
-    expected_map, note = _export_schematic_net_map()
+    expected_map, note = export_schematic_net_map()
     if note:
         return GateOutcome(
             name="PCB transfer",
@@ -843,13 +850,13 @@ def _manhattan_mst_length(points: list[tuple[float, float]]) -> float:
 
 
 def _placement_analysis() -> tuple[PlacementAnalysis | None, GateOutcome | None]:
-    from .pcb import (
+    from .board_file import (
         _board_frame_mm,
         _normalize_board_content,
         _parse_board_footprint_blocks,
         _placement_boxes_overlap,
     )
-    from .project import ProjectDesignIntent, resolve_design_intent
+    from .design_intent_state import ProjectDesignIntent, resolve_design_intent
 
     try:
         content = _normalize_board_content(
@@ -1312,8 +1319,8 @@ def _evaluate_manufacturing_gate(
     manufacturer: str | None = None,
     tier: str | None = None,
 ) -> GateOutcome:
+    from .design_intent_state import resolve_design_intent
     from .dfm import _dfm_check_lines, _load_profile, _selected_profile
-    from .project import resolve_design_intent
 
     if manufacturer is None or tier is None:
         try:
@@ -1365,15 +1372,6 @@ def _evaluate_project_gate(
     ]
 
 
-def _combined_status(outcomes: list[GateOutcome]) -> GateStatus:
-    statuses = {outcome.status for outcome in outcomes}
-    if "BLOCKED" in statuses:
-        return "BLOCKED"
-    if "FAIL" in statuses:
-        return "FAIL"
-    return "PASS"
-
-
 def _render_project_gate_report(
     outcomes: list[GateOutcome],
     *,
@@ -1397,7 +1395,7 @@ def _render_project_gate_report(
 
 def _design_intent_warning() -> bool:
     try:
-        from .project import resolve_design_intent
+        from .design_intent_state import resolve_design_intent
 
         return resolve_design_intent().source == "none"
     except Exception:
@@ -1611,7 +1609,7 @@ def register(mcp: FastMCP) -> None:
     @headless_compatible
     def drc_list_rules(include_custom: bool = True) -> str:
         """List known DRC rules from the active ``.kicad_dru`` file."""
-        from .routing import _load_rules_content, _rules_file_path
+        from .routing_rules import _load_rules_content, _rules_file_path
 
         built_in = [
             {"name": "clearance", "source": "built-in"},
@@ -1639,7 +1637,7 @@ def register(mcp: FastMCP) -> None:
         severity: str = "error",
     ) -> str:
         """Create or update a custom DRC rule in the active ``.kicad_dru`` file."""
-        from .routing import _load_rules_content, _rules_file_path
+        from .routing_rules import _load_rules_content, _rules_file_path
 
         if not name.strip():
             raise ValueError("Rule name must not be empty.")
@@ -1667,7 +1665,7 @@ def register(mcp: FastMCP) -> None:
     @headless_compatible
     def drc_rule_delete(rule_name: str) -> str:
         """Delete a custom DRC rule from the active rules file."""
-        from .routing import _load_rules_content, _rules_file_path
+        from .routing_rules import _load_rules_content, _rules_file_path
 
         path = _rules_file_path()
         root = parse_dru(_load_rules_content(path))
@@ -1684,7 +1682,7 @@ def register(mcp: FastMCP) -> None:
     @headless_compatible
     def drc_rule_enable(rule_name: str, enabled: bool = True) -> str:
         """Enable or disable a custom DRC rule."""
-        from .routing import _load_rules_content, _rules_file_path
+        from .routing_rules import _load_rules_content, _rules_file_path
 
         path = _rules_file_path()
         root = parse_dru(_load_rules_content(path))
@@ -1722,7 +1720,7 @@ def register(mcp: FastMCP) -> None:
     @headless_compatible
     def drc_export_rules(output_path: str | None = None) -> str:
         """Export the active custom DRC rules file for sharing or CI."""
-        from .routing import _rules_file_path
+        from .routing_rules import _rules_file_path
 
         source = _rules_file_path()
         cfg = get_config()

@@ -9,8 +9,9 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 from ..config import get_config
+from .gates import _combined_status
 from .metadata import headless_compatible
-from .validation import _combined_status, _entries, _evaluate_project_gate, _run_drc_report
+from .validation import _entries, _evaluate_project_gate, _run_drc_report
 
 _CHECKPOINT_TRAILER = "KiCad-MCP-Checkpoint: true"
 _DEFAULT_GIT_NAME = "KiCad MCP Pro"

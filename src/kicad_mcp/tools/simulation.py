@@ -18,7 +18,7 @@ from ..models.simulation import (
     TransientAnalysisInput,
 )
 from ..utils.ngspice import NgspiceRunner, SimulationResult, prepare_spice_netlist
-from .export import _ensure_output_dir, _get_sch_file, _run_cli_variants
+from .export_support import _ensure_output_dir, _get_sch_file, _run_cli_variants
 from .metadata import headless_compatible
 
 DIRECTIVE_FILENAME = ".kicad_mcp_spice_directives.cir"
