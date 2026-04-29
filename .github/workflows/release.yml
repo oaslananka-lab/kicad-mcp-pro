@@ -185,6 +185,8 @@ jobs:
           if [ "${RELEASE_PUBLISH}" != "true" ]; then
             release_args+=(--draft)
             create_args+=(--draft)
+          else
+            release_args+=(--draft=false)
           fi
           assets=()
           if compgen -G "dist/*" > /dev/null; then
