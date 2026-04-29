@@ -34,14 +34,14 @@ jobs:
           - "3.13"
           - "3.14"
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .node-version
           cache: npm
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           python-version: ${{ matrix.python-version }}
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -100,9 +100,41 @@ jobs:
             **/test-results.xml
       - name: Test summary
         if: always() && hashFiles('**/junit.xml') != ''
-        uses: test-summary/action@31493c76ec9e7aa675f1585d3ed6f1da69269a86
-        with:
-          paths: "**/junit.xml"
+        shell: python
+        run: |
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          rows = []
+          for path in glob.glob("**/junit.xml", recursive=True):
+              root = ET.parse(path).getroot()
+              suites = root.findall("testsuite") if root.tag == "testsuites" else [root]
+              for suite in suites:
+                  tests = int(suite.attrib.get("tests", "0"))
+                  failures = int(suite.attrib.get("failures", "0"))
+                  errors = int(suite.attrib.get("errors", "0"))
+                  skipped = int(suite.attrib.get("skipped", "0"))
+                  totals["tests"] += tests
+                  totals["failures"] += failures
+                  totals["errors"] += errors
+                  totals["skipped"] += skipped
+                  rows.append((path, suite.attrib.get("name", path), tests, failures, errors, skipped))
+
+          summary_path = os.environ["GITHUB_STEP_SUMMARY"]
+          with open(summary_path, "a", encoding="utf-8") as summary:
+              summary.write("## Test summary\n\n")
+              summary.write(
+                  f"Total: {totals['tests']} tests, {totals['failures']} failures, "
+                  f"{totals['errors']} errors, {totals['skipped']} skipped.\n\n"
+              )
+              summary.write("| File | Suite | Tests | Failures | Errors | Skipped |\n")
+              summary.write("|---|---|---:|---:|---:|---:|\n")
+              for file_name, suite_name, tests, failures, errors, skipped in rows:
+                  summary.write(
+                      f"| `{file_name}` | {suite_name} | {tests} | {failures} | {errors} | {skipped} |\n"
+                  )
 
   ci:
     name: CI
