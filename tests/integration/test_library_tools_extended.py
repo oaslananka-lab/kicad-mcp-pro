@@ -226,6 +226,11 @@ async def test_library_live_component_surface(
         "lib_search_components",
         {"keyword": "LDO", "source": "jlcsearch", "sort_by": "stock"},
     )
+    below_stock = await call_tool_text(
+        server,
+        "lib_search_components",
+        {"keyword": "LDO", "source": "jlcsearch", "min_stock": 1_000_000},
+    )
     details = await call_tool_text(
         server,
         "lib_get_component_details",
@@ -263,14 +268,19 @@ async def test_library_live_component_surface(
 
     assert "Live component matches" in search
     assert "C123" in search
+    assert "below min_stock=1000000" in below_stock
+    assert "Matches exist" in below_stock
     assert "Component details" in details
     assert "LM1117-3.3" in details
     assert "No component details" in missing
     assert "Live BOM with pricing" in bom
     assert "Estimated total" in bom
+    assert "D1" in bom
+    assert "value-only matching disabled" in bom
     assert "Quantity must be at least 1" in bad_qty
     assert "Stock availability" in stock
     assert "U1: C123" in stock
+    assert "D1: unresolved" in stock
     assert "No references were supplied" in no_refs
     assert "Alternative parts for C123" in alternatives
     assert "No base component details" in no_base

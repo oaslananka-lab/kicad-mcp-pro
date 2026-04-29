@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..config import get_config
 from ..connection import KiCadConnectionError, get_kicad
+from ..discovery import is_numbered_duplicate_kicad_file
 from ..models.schematic import (
     AddBusInput,
     AddBusWireEntryInput,
@@ -587,42 +588,8 @@ class _KicadSchApiBackend:
         return _transactional_write_to_schematic(mutator)
 
     def update_symbol_property(self, reference: str, field: str, value: str) -> str:
-        payload = UpdatePropertiesInput(reference=reference, field=field, value=value)
-        sch_file = _get_schematic_file()
-        try:
-            schematic = _load_kicad_schematic(sch_file)
-            component = schematic.components.get(payload.reference)
-            if component is None:
-                return _update_symbol_property_text_fallback(
-                    payload.reference,
-                    payload.field,
-                    payload.value,
-                )
-
-            normalized_field = payload.field.casefold()
-            if normalized_field == "reference":
-                component.reference = payload.value
-            elif normalized_field == "value":
-                component.value = payload.value
-            elif normalized_field == "footprint":
-                component.footprint = payload.value
-            else:
-                component.set_property(payload.field, payload.value)
-
-            schematic.save(sch_file, preserve_format=True)
-            return f"Updated {payload.reference}.{payload.field}."
-        except Exception as exc:
-            logger.debug(
-                "schematic_backend_property_update_fallback",
-                reference=payload.reference,
-                field=payload.field,
-                error=str(exc),
-            )
-            return _update_symbol_property_text_fallback(
-                payload.reference,
-                payload.field,
-                payload.value,
-            )
+        _ = self
+        return _update_symbol_property_text_fallback(reference, field, value)
 
     def reload_schematic(self) -> str:
         return _reload_schematic_via_ipc()
@@ -1676,6 +1643,26 @@ def _get_schematic_file() -> Path:
     return cfg.sch_file
 
 
+def project_schematic_files() -> list[Path]:
+    """Return the active project's schematic files, including flat sibling sheets."""
+    active = _get_schematic_file().resolve()
+    cfg = get_config()
+    root = cfg.project_file.parent if cfg.project_file is not None else active.parent
+    if cfg.project_dir is not None:
+        root = cfg.project_dir
+    try:
+        candidates = sorted(
+            path.resolve()
+            for path in root.glob("*.kicad_sch")
+            if path.is_file() and not is_numbered_duplicate_kicad_file(path)
+        )
+    except OSError:
+        candidates = []
+    if active not in candidates and active.exists():
+        candidates.insert(0, active)
+    return candidates or [active]
+
+
 def run_auto_annotate(start_number: int = 1, order: str = "alpha") -> str:
     """Module-level annotation runner — callable from project_auto_fix_loop.
 
@@ -1859,17 +1846,29 @@ def _extract_pin_definitions(block: str) -> dict[str, tuple[float, float]]:
 
 def _extract_pin_records(block: str) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    for match in re.finditer(
-        r'\(pin\s+\w+\s+\w+\s+\(at\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\)\s+\(length\s+[-\d.]+\).*?\(name\s+"([^"]*)"\).*?\(number\s+"([^"]+)"',
-        block,
-        re.DOTALL,
-    ):
+    cursor = 0
+    while cursor < len(block):
+        pin_start = block.find("(pin", cursor)
+        if pin_start < 0:
+            break
+        pin_block, consumed = _extract_block(block, pin_start)
+        cursor = pin_start + max(consumed, 1)
+        if not pin_block:
+            continue
+        at_match = re.search(
+            r"\(at\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\)",
+            pin_block,
+        )
+        number_match = re.search(r'\(number\s+"([^"]+)"', pin_block)
+        if at_match is None or number_match is None:
+            continue
+        name_match = re.search(r'\(name\s+"([^"]*)"', pin_block)
         records.append(
             {
-                "x": float(match.group(1)),
-                "y": float(match.group(2)),
-                "name": match.group(4),
-                "number": match.group(5),
+                "x": float(at_match.group(1)),
+                "y": float(at_match.group(2)),
+                "name": name_match.group(1) if name_match else "",
+                "number": number_match.group(1),
             }
         )
     return records
@@ -2939,6 +2938,10 @@ def _validate_schematic_text(content: str) -> None:
                 break
     if depth != 0 or in_string:
         raise ValueError("Refusing to write an invalid schematic with unbalanced parentheses.")
+    if re.search(r'\(paper\s+"User"\s*\)', content):
+        raise ValueError(
+            'Refusing to write an invalid schematic with incomplete (paper "User") dimensions.'
+        )
 
 
 def _find_placed_symbol_blocks(
@@ -3039,42 +3042,52 @@ def _update_symbol_property_text_fallback(reference: str, field: str, value: str
     """Update a symbol property in the active schematic."""
     payload = UpdatePropertiesInput(reference=reference, field=field, value=value)
 
-    def mutator(current: str) -> str:
+    def _update_block(block: str, parsed: dict[str, Any]) -> str:
         pattern = re.compile(
             rf'(\(property\s+"{re.escape(payload.field)}"\s+")([^"]*)(")',
             re.DOTALL,
         )
-        match = _find_placed_symbol_block(current, payload.reference)
-        if match is None:
-            raise ValueError(f"Reference '{payload.reference}' was not found in the schematic.")
-        block, start, end, parsed = match
         if pattern.search(block):
             escaped_value = _escape_sexpr_string(payload.value)
-            new_block = pattern.sub(
+            return pattern.sub(
                 lambda match: f"{match.group(1)}{escaped_value}{match.group(3)}",
                 block,
                 count=1,
             )
-        else:
-            insert_point = block.rfind("\t\t(instances")
-            if insert_point == -1:
-                insert_point = block.rfind("\n\t)")
-            if insert_point == -1:
-                raise ValueError(f"Could not update '{payload.reference}' in the schematic.")
-            x = parsed["x"]
-            y = parsed["y"]
-            rotation = parsed["rotation"]
-            property_block = (
-                f"\t\t(property {_sexpr_string(payload.field)} {_sexpr_string(payload.value)}\n"
-                f"\t\t\t(at {_fmt_mm(x)} {_fmt_mm(y)} {rotation})\n"
-                "\t\t\t(effects (font (size 1.27 1.27)) (hide yes))\n"
-                "\t\t)\n"
-            )
-            new_block = block[:insert_point] + property_block + block[insert_point:]
-        return current[:start] + new_block + current[end:]
+
+        insert_point = block.rfind("\t\t(instances")
+        if insert_point == -1:
+            insert_point = block.rfind("\n\t)")
+        if insert_point == -1:
+            raise ValueError(f"Could not update '{payload.reference}' in the schematic.")
+        x = parsed["x"]
+        y = parsed["y"]
+        rotation = parsed["rotation"]
+        property_block = (
+            f"\t\t(property {_sexpr_string(payload.field)} {_sexpr_string(payload.value)}\n"
+            f"\t\t\t(at {_fmt_mm(x)} {_fmt_mm(y)} {rotation})\n"
+            "\t\t\t(effects (font (size 1.27 1.27)) (hide yes))\n"
+            "\t\t)\n"
+        )
+        return block[:insert_point] + property_block + block[insert_point:]
+
+    updated_count = 0
+
+    def mutator(current: str) -> str:
+        nonlocal updated_count
+        matches = _find_placed_symbol_blocks(current, payload.reference)
+        if not matches:
+            raise ValueError(f"Reference '{payload.reference}' was not found in the schematic.")
+        updated_count = len(matches)
+
+        updated = current
+        for block, start, end, parsed in reversed(matches):
+            new_block = _update_block(block, parsed)
+            updated = updated[:start] + new_block + updated[end:]
+        return updated
 
     _transactional_write_to_schematic(mutator)
-    return f"Updated {payload.reference}.{payload.field}."
+    return f"Updated {payload.reference}.{payload.field} on {updated_count} instance(s)."
 
 
 def update_symbol_property(reference: str, field: str, value: str) -> str:

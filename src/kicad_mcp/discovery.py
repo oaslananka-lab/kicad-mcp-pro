@@ -31,6 +31,7 @@ _WATCHER_LOCK = threading.Lock()
 _WATCHER_STATE = _StudioWatcherState()
 _WATCHER_STOP = threading.Event()
 _CLI_CAPABILITIES_CACHE: dict[tuple[Path, int | None], CliCapabilities] = {}
+_NUMBERED_DUPLICATE_RE = re.compile(r"^.+\s+\d+\.kicad_(?:pro|sch|pcb)$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -313,8 +314,42 @@ def scan_project_dir(directory: Path) -> dict[str, Path | None]:
     ):
         matches = sorted(directory.glob(f"*{extension}"))
         if matches:
-            result[key] = matches[0]
+            result[key] = select_canonical_kicad_file(directory, matches, extension)
     return result
+
+
+def is_numbered_duplicate_kicad_file(path: Path) -> bool:
+    """Return true for Finder/iCloud-style numbered duplicate KiCad files."""
+    return bool(_NUMBERED_DUPLICATE_RE.match(path.name))
+
+
+def select_canonical_kicad_file(
+    directory: Path,
+    matches: list[Path],
+    extension: str,
+) -> Path | None:
+    """Select the safest default KiCad file from same-extension candidates.
+
+    Directory scans should prefer ``<directory-name>.<extension>`` over stale
+    numbered sync-conflict duplicates such as ``project 2.kicad_pro``.  If no
+    canonical match exists, numbered duplicates are ignored while a normal
+    candidate exists.  When the only candidate is numbered, it is still returned
+    for backward compatibility with intentionally numbered project names.
+    """
+    if not matches:
+        return None
+
+    canonical = directory / f"{directory.name}{extension}"
+    for candidate in matches:
+        if candidate.resolve() == canonical.resolve():
+            return candidate
+
+    non_duplicates = [
+        candidate for candidate in matches if not is_numbered_duplicate_kicad_file(candidate)
+    ]
+    if non_duplicates:
+        return non_duplicates[0]
+    return matches[0]
 
 
 def _discover_project_root(candidate: Path) -> tuple[Path, dict[str, Path | None]] | None:

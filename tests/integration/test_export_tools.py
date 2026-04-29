@@ -306,6 +306,41 @@ async def test_low_level_exports_include_debug_notice(sample_project, monkeypatc
 
 
 @pytest.mark.anyio
+async def test_export_bom_consolidates_flat_schematic_siblings(sample_project, monkeypatch) -> None:
+    (sample_project / "second.kicad_sch").write_text(
+        (sample_project / "demo.kicad_sch").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    class FakeBackend:
+        def parse_schematic_file(self, sch_file):
+            reference = "R1" if sch_file.name == "demo.kicad_sch" else "C1"
+            value = "10k" if reference == "R1" else "100n"
+            footprint = "Resistor_SMD:R_0805" if reference == "R1" else "Capacitor_SMD:C_0805"
+            return {
+                "symbols": [
+                    {
+                        "reference": reference,
+                        "value": value,
+                        "footprint": footprint,
+                        "lib_id": "Device:R" if reference == "R1" else "Device:C",
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("kicad_mcp.tools.library.get_schematic_backend", lambda: FakeBackend())
+
+    server = build_server("full")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+
+    bom = await call_tool_text(server, "export_bom", {"format": "csv"})
+
+    assert "Consolidated 2 reference(s) from 2 schematic files" in bom
+    assert "R1" in bom
+    assert "C1" in bom
+
+
+@pytest.mark.anyio
 async def test_run_drc_reads_json_report(sample_project, monkeypatch) -> None:
     report_path = sample_project / "output" / "drc_report.json"
 
@@ -572,6 +607,50 @@ async def test_validate_footprints_vs_schematic_uses_file_fallback(
     assert "Footprint versus schematic comparison:" in text
     assert "- Status: PASS" in text
     assert "PCB footprint refs (file): 1" in text
+
+
+@pytest.mark.anyio
+async def test_validate_footprints_vs_schematic_consolidates_flat_siblings(
+    sample_project,
+    monkeypatch,
+) -> None:
+    (sample_project / "second.kicad_sch").write_text(
+        (sample_project / "demo.kicad_sch").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (sample_project / "demo.kicad_pcb").write_text(
+        (
+            "(kicad_pcb\n"
+            '\t(footprint "Resistor_SMD:R_0805"\n'
+            '\t\t(property "Reference" "R1" (at 0 0 0) (layer "F.SilkS"))\n'
+            "\t)\n"
+            '\t(footprint "Capacitor_SMD:C_0805"\n'
+            '\t\t(property "Reference" "C1" (at 0 0 0) (layer "F.SilkS"))\n'
+            "\t)\n"
+            ")\n"
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_parse(sch_file):
+        reference = "R1" if sch_file.name == "demo.kicad_sch" else "C1"
+        footprint = "Resistor_SMD:R_0805" if reference == "R1" else "Capacitor_SMD:C_0805"
+        return {"symbols": [{"reference": reference, "footprint": footprint}]}
+
+    def raise_no_ipc():
+        raise KiCadConnectionError("no board")
+
+    monkeypatch.setattr("kicad_mcp.tools.validation.get_board", raise_no_ipc)
+    monkeypatch.setattr("kicad_mcp.tools.schematic.parse_schematic_file", fake_parse)
+
+    server = build_server("manufacturing")
+    await call_tool_text(server, "kicad_set_project", {"project_dir": str(sample_project)})
+
+    text = await call_tool_text(server, "validate_footprints_vs_schematic", {})
+
+    assert "- Status: PASS" in text
+    assert "Schematic files scanned: 2" in text
+    assert "PCB footprint refs (file): 2" in text
 
 
 @pytest.mark.anyio

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import subprocess as _subprocess
 import time as _time
 from pathlib import Path
@@ -231,6 +232,29 @@ def register(mcp: FastMCP, *, include_low_level_exports: bool = True) -> None:
         out_dir = _ensure_output_dir()
         suffix = "csv" if payload.format == "csv" else "xml"
         out_file = out_dir / f"bom.{suffix}"
+        if payload.format == "csv":
+            try:
+                from .library import _schematic_component_rows
+                from .schematic import project_schematic_files
+
+                schematic_files = project_schematic_files()
+                if len(schematic_files) > 1:
+                    rows = _schematic_component_rows()
+                    with out_file.open("w", newline="", encoding="utf-8") as handle:
+                        writer = csv.DictWriter(
+                            handle,
+                            fieldnames=["reference", "value", "footprint", "lib_id", "lcsc"],
+                        )
+                        writer.writeheader()
+                        writer.writerows(rows)
+                    return (
+                        f"BOM exported to {out_file}\n"
+                        f"Consolidated {len(rows)} reference(s) from "
+                        f"{len(schematic_files)} schematic files.\n\n"
+                        f"{_read_preview(out_file)}"
+                    )
+            except (OSError, ValueError, RuntimeError) as exc:
+                return f"BOM export failed: {exc}"
         variant_args = _active_variant_args(variant_name)
         code, _, stderr = _run_cli_variants(
             [

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
 from collections import deque
 from dataclasses import dataclass
+from html import unescape
+from html.parser import HTMLParser
 from typing import Any, Protocol, cast
 
 DEFAULT_USER_AGENT = "kicad-mcp-pro/2.0 (+https://github.com/oaslananka/kicad-mcp-pro)"
@@ -115,6 +118,7 @@ class JLCSearchClient:
     """Zero-auth live search against jlcsearch.tscircuit.com."""
 
     BASE = "https://jlcsearch.tscircuit.com"
+    JLCPCB_BASE = "https://jlcpcb.com"
 
     def search(
         self,
@@ -134,7 +138,21 @@ class JLCSearchClient:
                 "is_basic": "true" if only_basic else None,
             },
         )
-        return [_record_from_jlcsearch(item) for item in payload.get("components", [])]
+        records = [_record_from_jlcsearch(item) for item in payload.get("components", [])]
+        if records:
+            return records
+        fallback = self._search_jlcpcb_public(keyword, limit=limit)
+        if only_basic:
+            fallback = [item for item in fallback if item.is_basic]
+        if package:
+            package_folded = package.casefold()
+            fallback = [
+                item
+                for item in fallback
+                if package_folded in item.package.casefold()
+                or package_folded in item.description.casefold()
+            ]
+        return fallback[:limit]
 
     def get_part(self, lcsc_code_or_mpn: str) -> ComponentRecord | None:
         query = normalize_lcsc_code(lcsc_code_or_mpn)
@@ -147,7 +165,120 @@ class JLCSearchClient:
         for item in results:
             if item.mpn.casefold() == raw_query.casefold():
                 return item
-        return results[0] if results else None
+        if query.startswith("C") and query[1:].isdigit():
+            return self._get_jlcpcb_public_part(query)
+        public_matches = self._search_jlcpcb_public(raw_query, limit=10)
+        for item in public_matches:
+            if item.mpn.casefold() == raw_query.casefold():
+                return item
+        return None
+
+    def _request_text(self, url: str, params: dict[str, object] | None = None) -> str:
+        query = urllib.parse.urlencode(
+            {key: value for key, value in (params or {}).items() if value not in (None, "")}
+        )
+        target = f"{url}?{query}" if query else url
+        parsed = urllib.parse.urlparse(target)
+        if parsed.scheme != "https" or parsed.netloc not in {"jlcpcb.com", "www.jlcpcb.com"}:
+            raise ValueError("Only https JLCPCB public endpoints are permitted.")
+        request = urllib.request.Request(  # noqa: S310 - endpoint allow-list is enforced above
+            target,
+            headers={"User-Agent": DEFAULT_USER_AGENT},
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310  # nosec B310
+            return cast(bytes, response.read()).decode("utf-8", errors="replace")
+
+    def _search_jlcpcb_public(self, keyword: str, *, limit: int) -> list[ComponentRecord]:
+        if not keyword.strip():
+            return []
+        try:
+            html = self._request_text(
+                f"{self.JLCPCB_BASE}/parts/componentSearch",
+                {"isSearch": "true", "searchTxt": keyword.strip()},
+            )
+        except (OSError, ValueError):
+            return []
+        codes = []
+        for match in re.finditer(r'componentCode:"(C\d+)"', html):
+            code = match.group(1)
+            if code not in codes:
+                codes.append(code)
+            if len(codes) >= limit:
+                break
+        return [
+            record for code in codes if (record := self._get_jlcpcb_public_part(code)) is not None
+        ][:limit]
+
+    def _get_jlcpcb_public_part(self, lcsc_code: str) -> ComponentRecord | None:
+        try:
+            html = self._request_text(f"{self.JLCPCB_BASE}/partdetail/-/{lcsc_code}")
+        except (OSError, ValueError):
+            return None
+        return _record_from_jlcpcb_detail_page(html, lcsc_code)
+
+
+def _plain_text_lines(html: str) -> list[str]:
+    parser = _VisibleTextParser()
+    parser.feed(html)
+    parser.close()
+    return parser.lines
+
+
+class _VisibleTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._ignored_depth = 0
+        self._chunks: list[str] = []
+
+    @property
+    def lines(self) -> list[str]:
+        return [line.strip() for line in "\n".join(self._chunks).splitlines() if line.strip()]
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _ = attrs
+        if tag.lower() in {"script", "style"}:
+            self._ignored_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in {"script", "style"} and self._ignored_depth:
+            self._ignored_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._ignored_depth == 0:
+            self._chunks.append(data)
+
+
+def _line_after_label(lines: list[str], label: str) -> str:
+    for index, line in enumerate(lines):
+        if line == label and index + 1 < len(lines):
+            return lines[index + 1]
+    return ""
+
+
+def _record_from_jlcpcb_detail_page(html: str, lcsc_code: str) -> ComponentRecord | None:
+    if lcsc_code not in html:
+        return None
+    lines = _plain_text_lines(html)
+    title_match = re.search(r"<title>([^|<]+)", html, re.IGNORECASE)
+    mpn = _line_after_label(lines, "MFR.Part #") or (
+        unescape(title_match.group(1)).strip() if title_match else ""
+    )
+    package = _line_after_label(lines, "Package")
+    description = _line_after_label(lines, "Description")
+    library_type = " ".join(lines[:80]).casefold()
+    stock_match = re.search(r"In Stock:\s*([\d,]+)", "\n".join(lines), re.IGNORECASE)
+    price_match = re.search(r"1\+\s*\$([0-9.]+)", "\n".join(lines))
+    return ComponentRecord(
+        source="jlcpcb-public",
+        lcsc_code=normalize_lcsc_code(lcsc_code),
+        mpn=mpn,
+        package=package,
+        description=description,
+        stock=int(stock_match.group(1).replace(",", "")) if stock_match else 0,
+        price=float(price_match.group(1)) if price_match else None,
+        is_basic="basic" in library_type and "extended" not in library_type,
+        is_preferred=False,
+    )
 
 
 class NexarClient:
