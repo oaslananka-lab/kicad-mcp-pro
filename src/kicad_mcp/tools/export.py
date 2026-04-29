@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import subprocess  # noqa: F401 - public compatibility for tests and downstream monkeypatches
-import time  # noqa: F401 - public compatibility for tests and downstream monkeypatches
+import subprocess as _subprocess
+import time as _time
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,13 @@ from .export_support import (
 from .metadata import headless_compatible
 from .variants import variant_apply_to_kicad_cli_args
 
+# Public compatibility for tests and downstream monkeypatches.  These aliases
+# point at Python's process/time modules, so monkeypatching
+# kicad_mcp.tools.export.subprocess.run or .time.sleep still affects _run_cli's
+# shared module objects.
+subprocess = _subprocess
+time = _time
+
 DEFAULT_PCB_PDF_LAYERS = ["F.Cu", "Edge.Cuts"]
 __all__ = [
     "_ensure_output_dir",
@@ -35,6 +42,8 @@ __all__ = [
     "_get_sch_file",
     "_run_cli",
     "_run_cli_variants",
+    "subprocess",
+    "time",
 ]
 
 
