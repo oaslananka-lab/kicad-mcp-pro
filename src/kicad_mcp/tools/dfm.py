@@ -16,7 +16,7 @@ from mcp.server.fastmcp import FastMCP
 from ..connection import KiCadConnectionError, get_board
 from ..utils.sexpr import _extract_block
 from ..utils.units import nm_to_mm
-from .export import _ensure_output_dir, _get_pcb_file, _run_cli_variants
+from .export_support import _ensure_output_dir, _get_pcb_file, _run_cli_variants
 from .metadata import headless_compatible
 
 logger = structlog.get_logger(__name__)

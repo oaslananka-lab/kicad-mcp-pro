@@ -1546,7 +1546,9 @@ def _parse_netlist_text(content: str) -> dict[tuple[str, str], str]:
     net_map: dict[tuple[str, str], str] = {}
     cursor = 0
     while cursor < len(content):
-        if content[cursor:].startswith("(net"):
+        if content[cursor : cursor + 4] == "(net" and (
+            cursor + 4 == len(content) or content[cursor + 4].isspace()
+        ):
             block, length = _extract_block(content, cursor)
             if block:
                 name_match = re.search(rf"\(name\s+{STRING_PATTERN}\)", block)
@@ -2092,7 +2094,7 @@ def register(mcp: FastMCP) -> None:
         min_hole_to_hole_mm: float = 0.25,
     ) -> str:
         """Write board-level manufacturing constraints into the active .kicad_dru file."""
-        from .routing import _load_rules_content, _mm, _rules_file_path, _upsert_rule
+        from .routing_rules import _load_rules_content, _mm, _rules_file_path, _upsert_rule
 
         payload = SetDesignRulesInput(
             min_trace_width_mm=min_trace_width_mm,

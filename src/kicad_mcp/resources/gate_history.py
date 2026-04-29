@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 from ..config import get_config
-from ..tools.validation import GateOutcome, GateStatus
+from ..tools.gates import GateOutcome, GateStatus
 
 SCHEMA_VERSION = 1
 
