@@ -14,24 +14,77 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
-          days-before-stale: 60
-          days-before-close: 14
-          stale-issue-label: status:stale
-          stale-pr-label: status:stale
-          exempt-issue-labels: priority:p0,pinned,security,type:security
-          exempt-pr-labels: priority:p0,pinned,security,type:security
-          stale-issue-message: >
-            This issue has been quiet for 60 days and is marked stale. If it is
-            still reproducible, please add a short update with the current
-            KiCad MCP Pro, KiCad, Python, and client versions.
-          stale-pr-message: >
-            This pull request has been quiet for 60 days and is marked stale.
-            Please rebase and post a current test summary if it is still active.
-          close-issue-message: >
-            Closing after 14 additional days without activity. Reopen with a
-            fresh reproduction if this still affects the current release.
-          close-pr-message: >
-            Closing after 14 additional days without activity. A fresh PR is
-            welcome when the change is ready to continue.
+          script: |
+            const staleAfterDays = 60;
+            const closeAfterDays = 14;
+            const staleLabel = 'status:stale';
+            const exemptLabels = new Set(['priority:p0', 'pinned', 'security', 'type:security']);
+            const now = Date.now();
+            const staleAgeMs = staleAfterDays * 24 * 60 * 60 * 1000;
+            const closeAgeMs = closeAfterDays * 24 * 60 * 60 * 1000;
+            const { owner, repo } = context.repo;
+
+            const items = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            for (const item of items) {
+              const labels = new Set(item.labels.map((label) => label.name));
+              if ([...labels].some((label) => exemptLabels.has(label))) {
+                continue;
+              }
+
+              const isPullRequest = Boolean(item.pull_request);
+              const updatedAgeMs = now - new Date(item.updated_at).getTime();
+              const hasStaleLabel = labels.has(staleLabel);
+
+              if (hasStaleLabel && updatedAgeMs >= closeAgeMs) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: item.number,
+                  body: isPullRequest
+                    ? 'Closing after 14 additional days without activity. A fresh PR is welcome when the change is ready to continue.'
+                    : 'Closing after 14 additional days without activity. Reopen with a fresh reproduction if this still affects the current release.',
+                });
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: item.number,
+                  state: 'closed',
+                });
+                continue;
+              }
+
+              if (hasStaleLabel && updatedAgeMs < staleAgeMs) {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number: item.number,
+                  name: staleLabel,
+                });
+                continue;
+              }
+
+              if (!hasStaleLabel && updatedAgeMs >= staleAgeMs) {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: item.number,
+                  labels: [staleLabel],
+                });
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: item.number,
+                  body: isPullRequest
+                    ? 'This pull request has been quiet for 60 days and is marked stale. Please rebase and post a current test summary if it is still active.'
+                    : 'This issue has been quiet for 60 days and is marked stale. If it is still reproducible, please add a short update with the current KiCad MCP Pro, KiCad, Python, and client versions.',
+                });
+              }
+            }

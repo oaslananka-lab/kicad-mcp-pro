@@ -17,11 +17,51 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Apply label schema
-        uses: EndBug/label-sync@52074158190acb45f3077f9099fea818aa43f97a
-        with:
-          config-file: .github/labels.yml
-          delete-other-labels: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: python
+        run: |
+          import json
+          import pathlib
+          import subprocess
+
+          def parse_value(raw: str) -> str:
+              value = raw.strip()
+              if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                  return value[1:-1]
+              return value
+
+          labels: list[dict[str, str]] = []
+          current: dict[str, str] | None = None
+          for line in pathlib.Path(".github/labels.yml").read_text(encoding="utf-8").splitlines():
+              if not line.strip():
+                  continue
+              if line.startswith("- name:"):
+                  if current is not None:
+                      labels.append(current)
+                  current = {"name": parse_value(line.split(":", 1)[1])}
+                  continue
+              if current is None or ":" not in line:
+                  continue
+              key, raw_value = line.strip().split(":", 1)
+              current[key] = parse_value(raw_value)
+          if current is not None:
+              labels.append(current)
+
+          existing_raw = subprocess.check_output(
+              ["gh", "label", "list", "--limit", "1000", "--json", "name"],
+              text=True,
+              encoding="utf-8",
+          )
+          existing = {label["name"] for label in json.loads(existing_raw)}
+          for label in labels:
+              name = label["name"]
+              color = label["color"].lstrip("#")
+              description = label.get("description", "")
+              if name in existing:
+                  command = ["gh", "label", "edit", name, "--color", color, "--description", description]
+              else:
+                  command = ["gh", "label", "create", name, "--color", color, "--description", description]
+              subprocess.run(command, check=True)
