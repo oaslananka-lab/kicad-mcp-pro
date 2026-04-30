@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      pull-requests: read
     steps:
       - name: Checkout canonical
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -125,6 +126,7 @@ jobs:
       - name: Pull from canonical and replay
         env:
           MIRROR_TOKEN: ${{ secrets.DOPPLER_GITHUB_SERVICE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "${MIRROR_TOKEN:-}" ]; then
@@ -184,6 +186,16 @@ jobs:
             esac
             if ! git show-ref --verify --quiet "refs/remotes/canonical/${short}"; then
               if git ls-remote --exit-code --heads origin "$short" >/dev/null 2>&1; then
+                open_prs="$(gh pr list \
+                  --repo "${{ github.repository }}" \
+                  --head "$short" \
+                  --state open \
+                  --json number \
+                  --jq 'length')"
+                if [ "${open_prs}" -gt 0 ]; then
+                  echo "Skipping org branch with open PR: $short"
+                  continue
+                fi
                 git push origin ":refs/heads/$short"
               else
                 echo "Remote branch already absent in org mirror: $short"

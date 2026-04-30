@@ -11,7 +11,7 @@ Commits, branches, and tags move from canonical to the lab mirror. Release artif
 
 ## CI/CD Authority
 
-Automation runs only on `oaslananka-lab/kicad-mcp-pro`:
+Normal automation runs only on `oaslananka-lab/kicad-mcp-pro`:
 
 - CI matrix
 - Security scanning
@@ -21,7 +21,10 @@ Automation runs only on `oaslananka-lab/kicad-mcp-pro`:
 - documentation deploy
 - image and Docker checks
 
-The canonical repository should not run GitHub Actions. The lab mirror pulls from canonical on a schedule and runs all automation there.
+The canonical repository may run only the forward mirror/sync path needed to
+copy canonical refs to the lab repository. The lab mirror pulls from canonical
+on a schedule and owns normal validation, release, documentation, and security
+automation.
 
 ## Secrets
 

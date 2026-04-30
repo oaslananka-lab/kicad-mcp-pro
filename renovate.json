@@ -14,7 +14,10 @@
       "groupName": "github-actions minor and patch",
       "automerge": true,
       "automergeType": "pr",
-      "platformAutomerge": true
+      "platformAutomerge": true,
+      "minimumReleaseAge": "3 days",
+      "prCreation": "not-pending",
+      "internalChecksFilter": "strict"
     },
     {
       "description": "Automerge Node development tooling patch and minor updates after checks pass.",
@@ -23,7 +26,10 @@
       "groupName": "dev dependencies minor and patch",
       "automerge": true,
       "automergeType": "pr",
-      "platformAutomerge": true
+      "platformAutomerge": true,
+      "minimumReleaseAge": "3 days",
+      "prCreation": "not-pending",
+      "internalChecksFilter": "strict"
     },
     {
       "description": "Require approval for runtime dependency updates.",
@@ -42,6 +48,13 @@
       "matchPackageNames": ["kicad-python", "kicad-sch-api", "mcp", "pydantic", "typer"],
       "dependencyDashboardApproval": true,
       "labels": ["dependencies", "core-runtime"]
+    },
+    {
+      "description": "Require approval for Docker base image major updates.",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "labels": ["dependencies", "runtime", "breaking-change"]
     }
   ]
 }

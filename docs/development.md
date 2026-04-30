@@ -19,6 +19,7 @@ task test
 task security
 task workflows:lint
 task workflows:security
+task package:check
 task ci
 ```
 
@@ -34,6 +35,12 @@ For full local parity with CI:
 
 ```bash
 task ci
+```
+
+For packaging-only validation:
+
+```bash
+task package:check
 ```
 
 For local workstation security scanners:

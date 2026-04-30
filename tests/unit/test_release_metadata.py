@@ -78,7 +78,7 @@ def test_release_metadata_is_synchronised() -> None:
     assert "<!-- mcp-name: io.github.oaslananka/kicad-mcp-pro -->" in readme
     assert "development/v2-migration.md" in mkdocs
     assert "| `3.x`   | Yes" in security
-    assert "CVE-2025-69872" in security
+    assert "No accepted ignored advisories are currently active." in security
 
 
 def test_kicad_studio_contract_documents_current_http_bridge() -> None:

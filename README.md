@@ -120,6 +120,7 @@ Operational references:
 
 - [Repository operations](docs/repository-operations.md)
 - [Autonomy model](docs/autonomy.md)
+- [Automation policy](docs/maintenance/automation-policy.md)
 - [Doppler setup](docs/doppler-setup.md)
 - [Branch protection](docs/branch-protection.md)
 

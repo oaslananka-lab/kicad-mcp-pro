@@ -47,3 +47,31 @@ body:
         Transport:
     validations:
       required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk level
+      options:
+        - Low
+        - Medium
+        - High
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: automation_allowed
+    attributes:
+      label: May a coding agent work on this?
+      options:
+        - Yes, if maintainers mark it agent:candidate
+        - No, human maintainer only
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: done_criteria
+    attributes:
+      label: Done criteria
+      description: What observable behavior proves the regression is fixed?
+    validations:
+      required: true

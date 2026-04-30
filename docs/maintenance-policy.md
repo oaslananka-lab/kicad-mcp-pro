@@ -22,8 +22,9 @@ skipping the scan.
 
 ## Dependency Updates
 
-Dependabot remains responsible for security updates and alerts. Renovate handles
-regular version update PRs using `renovate.json`.
+Dependabot is reserved for security updates and alerts. Renovate handles regular
+version update PRs using `renovate.json`, which avoids duplicate pull requests
+for the same package ecosystem.
 
 Patch and minor updates for development tooling and GitHub Actions may automerge
 only after protected checks pass. Runtime dependencies, major updates, and core
@@ -45,3 +46,8 @@ authenticated Safety scans are recommended scheduled or release-time checks.
 `release-please` is the changelog and release PR source of truth. Registry
 publishing is restricted to protected release workflows after tests, security
 checks, build, SBOM, checksums, and artifact attestation complete.
+
+## Automation Policy
+
+Repository automation rules for coding agents, reviewers, dependency updates,
+and merge automation live in [Automation Policy](maintenance/automation-policy.md).

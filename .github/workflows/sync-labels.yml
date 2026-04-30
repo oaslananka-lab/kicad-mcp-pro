@@ -8,16 +8,26 @@ on:
       - .github/labels.yml
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   sync:
     name: Sync Labels
     if: github.repository == 'oaslananka-lab/kicad-mcp-pro'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       issues: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
       - name: Apply label schema
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

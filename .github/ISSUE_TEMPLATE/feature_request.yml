@@ -35,6 +35,38 @@ body:
         - Other
     validations:
       required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Expected risk
+      options:
+        - Low
+        - Medium
+        - High
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: automation_allowed
+    attributes:
+      label: May a coding agent work on this?
+      options:
+        - Yes, if maintainers mark it agent:candidate
+        - No, human maintainer only
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: done_criteria
+    attributes:
+      label: Done criteria
+      description: What should be true when this is complete?
+      placeholder: |
+        - New behavior is documented
+        - Tests cover the workflow
+        - Existing public API compatibility is clear
+    validations:
+      required: true
   - type: textarea
     id: alternatives
     attributes:
