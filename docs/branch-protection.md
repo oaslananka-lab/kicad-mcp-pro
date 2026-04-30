@@ -21,6 +21,16 @@ gh api /repos/oaslananka-lab/kicad-mcp-pro/rulesets
 gh api -X PUT /repos/oaslananka-lab/kicad-mcp-pro/rulesets/<id> --input .github/rulesets/main.json
 ```
 
-The current policy requires pull requests, one review, code owner review, signed commits, and non-fast-forward protection.
+The current policy requires pull requests, one review, code owner review, signed
+commits, non-fast-forward protection, and these required status checks:
 
-`required_status_checks` is empty in the committed JSON by default. After the lab workflows have run at least once, add the actual check names that GitHub reports for this repository.
+- `CI`
+- `Security`
+- `CodeQL`
+- `Gitleaks`
+- `Trivy (base image)`
+- `Docs`
+
+Check names must match the contexts that GitHub reports after workflow
+execution. Update `.github/rulesets/main.json` when a required workflow is
+renamed.

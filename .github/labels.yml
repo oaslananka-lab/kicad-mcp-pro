@@ -19,6 +19,9 @@
 - name: type:chore
   color: "cccccc"
   description: Maintenance, tooling, or repository operations.
+- name: type:maintenance
+  color: "cccccc"
+  description: Repository maintenance, automation, or operational upkeep.
 - name: type:deps
   color: "0366d6"
   description: Dependency update.
@@ -46,6 +49,15 @@
 - name: area:docs
   color: "0075ca"
   description: Documentation site and README.
+- name: area:tests
+  color: "0e8a16"
+  description: Test coverage, fixtures, or test infrastructure.
+- name: area:package
+  color: "5319e7"
+  description: Packaging, distribution metadata, and release artifacts.
+- name: area:security
+  color: "b60205"
+  description: Security scans, dependency advisories, or hardening.
 - name: area:python
   color: "3572a5"
   description: Python package, tests, and tooling.
@@ -67,6 +79,12 @@
 - name: status:triage
   color: "cfd3d7"
   description: Needs maintainer triage.
+- name: needs:triage
+  color: "cfd3d7"
+  description: Needs initial maintainer or automation triage.
+- name: needs:human
+  color: "d93f0b"
+  description: Requires a human maintainer decision before automation proceeds.
 - name: status:blocked
   color: "b60205"
   description: Blocked by external input or dependency.
@@ -82,6 +100,24 @@
 - name: status:stale
   color: "cfd3d7"
   description: No recent activity and may be closed.
+- name: agent:candidate
+  color: "c2e0c6"
+  description: Suitable for a coding agent after maintainer triage.
+- name: agent:working
+  color: "fbca04"
+  description: Automation or an assigned agent is actively working.
+- name: agent:needs-human
+  color: "d93f0b"
+  description: Agent work is blocked on a human decision.
+- name: risk:low
+  color: "c2e0c6"
+  description: Low-risk, localized change with straightforward rollback.
+- name: risk:medium
+  color: "fbca04"
+  description: Medium-risk change that needs careful review or broader tests.
+- name: risk:high
+  color: "b60205"
+  description: High-risk change requiring explicit maintainer ownership.
 - name: effort:xs
   color: "c2e0c6"
   description: Very small change.
@@ -115,6 +151,9 @@
 - name: breaking
   color: "b60205"
   description: Breaking API, config, or workflow change.
+- name: breaking-change
+  color: "b60205"
+  description: Breaking API, configuration, packaging, or workflow change.
 - name: regression
   color: "d93f0b"
   description: Behavior worked before and now fails.
@@ -124,6 +163,12 @@
 - name: dependencies
   color: "0366d6"
   description: Dependency update.
+- name: core-runtime
+  color: "5319e7"
+  description: Core KiCad, MCP, Pydantic, Typer, or runtime dependency surface.
+- name: runtime
+  color: "006b75"
+  description: Runtime dependency, packaging, or deployment behavior.
 - name: good first issue
   color: "7057ff"
   description: Good for a first contribution.

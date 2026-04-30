@@ -39,6 +39,34 @@ area:ci:
           - .gitlab-ci.yml
           - package.json
           - package-lock.json
+area:tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - tests/**/*
+area:package:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pyproject.toml
+          - uv.lock
+          - package.json
+          - package-lock.json
+          - Dockerfile*
+          - release-please-config.json
+          - .release-please-manifest.json
+          - scripts/check_package_metadata.py
+area:security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - SECURITY.md
+          - .gitleaks.toml
+          - codecov.yml
+          - .github/workflows/codeql.yml
+          - .github/workflows/gitleaks.yml
+          - .github/workflows/scorecard.yml
+          - .github/workflows/security.yml
+          - .github/workflows/trivy.yml
+          - scripts/security_local.py
+          - scripts/workflow_security.py
 area:docs:
   - changed-files:
       - any-glob-to-any-file:
@@ -53,7 +81,17 @@ type:docs:
 type:deps:
   - changed-files:
       - any-glob-to-any-file:
+          - .github/dependabot.yml
+          - .pre-commit-config.yaml
           - pyproject.toml
           - uv.lock
           - package.json
           - package-lock.json
+          - renovate.json
+type:maintenance:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**/*
+          - Taskfile.yml
+          - package.json
+          - scripts/**/*

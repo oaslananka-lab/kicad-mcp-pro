@@ -1,28 +1,28 @@
 version: 2
 
 updates:
-  - package-ecosystem: pip
+  - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
       day: monday
       time: "07:00"
       timezone: Europe/Istanbul
-    open-pull-requests-limit: 10
+    # Renovate owns regular version-update PRs. Dependabot stays enabled for
+    # GitHub security updates and alert-driven remediation only.
+    open-pull-requests-limit: 0
     versioning-strategy: increase-if-necessary
     cooldown:
       default-days: 3
     groups:
-      python-production:
-        dependency-type: production
-        patterns:
-          - "*"
-      python-development:
-        dependency-type: development
+      python-security:
+        applies-to: security-updates
         patterns:
           - "*"
     labels:
       - dependencies
+      - type:security
+      - needs:triage
       - area:python
 
   - package-ecosystem: npm
@@ -32,17 +32,21 @@ updates:
       day: monday
       time: "07:20"
       timezone: Europe/Istanbul
-    open-pull-requests-limit: 5
+    # Renovate owns regular version-update PRs. Dependabot stays enabled for
+    # GitHub security updates and alert-driven remediation only.
+    open-pull-requests-limit: 0
     versioning-strategy: auto
     cooldown:
       default-days: 3
     groups:
-      npm-development:
-        dependency-type: development
+      npm-security:
+        applies-to: security-updates
         patterns:
           - "*"
     labels:
       - dependencies
+      - type:security
+      - needs:triage
       - area:js
 
   - package-ecosystem: github-actions
@@ -52,13 +56,18 @@ updates:
       day: monday
       time: "07:40"
       timezone: Europe/Istanbul
-    open-pull-requests-limit: 5
+    # Renovate owns regular version-update PRs. Dependabot stays enabled for
+    # GitHub security updates and alert-driven remediation only.
+    open-pull-requests-limit: 0
     cooldown:
       default-days: 3
     groups:
-      github-actions:
+      github-actions-security:
+        applies-to: security-updates
         patterns:
           - "*"
     labels:
       - dependencies
+      - type:security
+      - needs:triage
       - type:chore

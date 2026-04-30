@@ -36,14 +36,9 @@ diagnostics report whether tokens are configured without printing the values.
 
 ## Accepted Advisories
 
-### CVE-2025-69872 (`diskcache`, optional simulation extra)
-
-`diskcache` is pulled transitively by InSpice when installing the optional
-`simulation` extra. The default KiCad MCP Pro install does not include it. Until
-an upstream fix is available, deployments that enable simulation tools should
-keep cache directories trusted and isolated, especially for remote HTTP servers.
-The CI audit may ignore this CVE only when the ignore is visible in the audit
-command and this note remains present.
+No accepted ignored advisories are currently active. If a future advisory must
+be accepted temporarily, document the affected dependency, affected optional
+extra or runtime path, mitigation, and the exact audit ignore used in CI.
 
 ## Response Expectations
 

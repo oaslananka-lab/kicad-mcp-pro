@@ -159,7 +159,7 @@ jobs:
           upload-signing-artifacts: true
 
       - name: Publish
-        if: inputs.publish == 'true'
+        if: inputs.publish == 'true' && inputs.approval == 'APPROVE_RELEASE'
         env:
           RELEASE_INDEX: ${{ inputs.index }}
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}

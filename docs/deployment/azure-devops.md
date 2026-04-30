@@ -8,7 +8,9 @@ The primary Azure pipeline definition lives in the repository root as `azure-pip
 
 It covers:
 
-- `Validate`: `uv sync`, `ruff`, `mypy`, and `pytest` with a `--cov-fail-under=70` gate
+- `Validate`: `uv sync`, `ruff`, `mypy`, pytest with the repository's 90%
+  coverage gate, dependency audit, and workflow checks through
+  `corepack npm run check:ci`
 - `Build`: `uv build` and artifact publication for the generated `dist/` output
 - `Publish`: optional manual release to TestPyPI or PyPI using Azure-managed secrets
 
@@ -45,6 +47,9 @@ The repository includes GitHub workflows that are automatic only in the `oaslana
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/security.yml`
-- `.github/workflows/publish.yml`
+- `.github/workflows/release.yml`
 
-`ci.yml` and `security.yml` run on `push` and `pull_request` only when `github.repository_owner == 'oaslananka-lab'`. `publish.yml` remains manual because package publication should require a human release decision.
+`ci.yml` and `security.yml` run on `push` and `pull_request` in the lab
+repository. `release.yml` is manual and guarded by the exact repository check
+`github.repository == 'oaslananka-lab/kicad-mcp-pro'`, protected environment
+approval, and an explicit publish confirmation.

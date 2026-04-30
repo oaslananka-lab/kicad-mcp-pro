@@ -66,6 +66,7 @@ nav:
   - Deployment:
       - Repository and CI/CD Topology: deployment/repository-topology.md
       - Autonomy Model: autonomy.md
+      - Automation Policy: maintenance/automation-policy.md
       - Repository Operations: repository-operations.md
       - Doppler Setup: doppler-setup.md
       - Branch Protection: branch-protection.md
